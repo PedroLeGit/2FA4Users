@@ -8,7 +8,9 @@
  *
  * @category Test
  * @package  Test
- * @author   Original Author <pierreamaury@outlook.fr>
+ * @author   Pierre Amaury Plaud <pierreamaury@outlook.fr>
+ * @author   Travail réalisé au sein de la SARL CYM DEVELOPPEMENT
+ * @author   dans le cadre d'un stage de deuxiéme année de BTS SIO
  * @license  http://www.php.net/license/7_10.txt PHP License 7.1
  * @link     http://pear.php.net/package/PackageName
  */
