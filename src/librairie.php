@@ -53,10 +53,25 @@ const PASSWORD_LENGHT = 8;
 /**
  * Password strength
  * 1(numbers)
- * 2(special caracters)
- * 3(Capslock)
+ * 2(numbers + uppercase)
+ * 3(numbers + uppercase + special caracters)
  */
-const PASSWORD_STRENGTH = 1;
+const PASSWORD_STRENGTH = 12;
+
+/**
+ * Pattern as an array
+ * In this way you can add some more patterns
+ */
+const PASSWORD_PATTERN =  array(
+    //Only the lenght will be tested
+    '#^.{'.PASSWORD_LENGHT.',}$#',
+    //the lenght + numbers
+    '#^(?=.*[a-z])(?=.*[0-9]).{'.PASSWORD_LENGHT.',}$#',
+    //the lenght + numbers + uppercase
+    '#^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9]).{'.PASSWORD_LENGHT.',}$#',
+    //the lenght + numbers + uppercase + special caracters
+    '#^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*\W).{'.PASSWORD_LENGHT.',}$#'
+    );
 
 /**
  * Define how long the user could connect with the same password
@@ -98,7 +113,7 @@ const AUTO_DISCONNECT = 0;
  *                                           2FA
  *                                           disableUserAccount
  */
-const LOG = 10;
+const LOG = 3;
 
 /**
  * Determine the log path
@@ -174,8 +189,9 @@ class Library
     {
         //Valide self::_log("Connexion", 1, 1);
         //Valide self::_initPdo();
-        self::_setBDD("INSERT INTO ".DATABASE_PREFIX."Registrations (`user`) VALUES (?)", array('michel'));
-        // self::_initTable($pdo);
+        //self::_setBDD("INSERT INTO ".DATABASE_PREFIX."Registrations (`user`) VALUES (?)", array('michel'));
+        //Valide self::_initTable($pdo);
+        self::_createPasswd("p0?Awetpwet?");
     }
 
 
@@ -185,18 +201,18 @@ class Library
     private static function _initTable($pdo){
         if(DATABASE_TYPE == 1){
             $res = $pdo->exec("CREATE TABLE if not exists `".DATABASE_PREFIX."Registrations`( 
-            `u2fKey_id` SERIAL NOT NULL AUTO_INCREMENT ,
+            `user_id` SERIAL NOT NULL AUTO_INCREMENT ,
             `user` VARCHAR(50) NOT NULL ,  
             `password` VARCHAR(60) NOT NULL ,
-            `u2fKeyHandle` VARCHAR(255) NOT NULL ,
-            `u2fPublicKey` VARCHAR(255) NOT NULL ,
-            `u2fCertificate` TEXT NOT NULL ,
-            `u2fCounter` INT NOT NULL ,
+            `u2fKeyHandle` VARCHAR(255) NULL ,
+            `u2fPublicKey` VARCHAR(255) NULL ,
+            `u2fCertificate` TEXT NULL ,
+            `u2fCounter` INT NULL ,
             `rights` INT NOT NULL ,
             `oldPassword` VARCHAR(255) NULL ,
             `active` BOOLEAN NOT NULL ,
             `phoneNumber` VARCHAR(10) NULL ,
-            `versionLib` VARCHAR(50) NOT NULL ,
+            `versionLib` VARCHAR(50) NULL ,
             `ipv4` VARCHAR(15) NOT NULL ,
             `ipv6` VARCHAR(36) NULL ,
             `agePassword` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP )
@@ -204,40 +220,40 @@ class Library
             ");
         }elseif (DATABASE_TYPE == 2){
             $pdo->exec('CREATE TABLE if not exists '.DATABASE_PREFIX.'Registrations (
-            "u2fKey_id" integer NOT NULL,
+            "user_id" integer NOT NULL,
             "user" character varying(50) COLLATE pg_catalog."default" NOT NULL,
             "password" character varying(60) COLLATE pg_catalog."default" NOT NULL,
-            "u2fKeyHandle" character varying(255) COLLATE pg_catalog."default" NOT NULL,
-            "u2fPublicKey" character varying(255) COLLATE pg_catalog."default" NOT NULL,
-            "u2fCertificate" text COLLATE pg_catalog."default" NOT NULL,
-            "u2fCounter" integer NOT NULL,
+            "u2fKeyHandle" character varying(255) COLLATE pg_catalog."default" NULL,
+            "u2fPublicKey" character varying(255) COLLATE pg_catalog."default" NULL,
+            "u2fCertificate" text COLLATE pg_catalog."default" NULL,
+            "u2fCounter" integer NULL,
             "rights" integer NOT NULL,
             "oldPassword" character varying(255) COLLATE pg_catalog."default" NULL,
             "active" boolean NOT NULL,
             "phoneNumber" character varying(10) COLLATE pg_catalog."default" NULL,
-            "versionLib" character varying(50) COLLATE pg_catalog."default" NOT NULL,
+            "versionLib" character varying(50) COLLATE pg_catalog."default" NULL,
             "ipv4" character varying(15) COLLATE pg_catalog."default" NOT NULL,
-            "ipv6" character varying(36) COLLATE pg_catalog."default",
+            "ipv6" character varying(36) COLLATE pg_catalog."default" NULL,
             "agePassword" timestamp without time zone NOT NULL,
             CONSTRAINT '.DATABASE_PREFIX.'Registrations_pkey PRIMARY KEY ("u2fKey_id"))
             WITH (OIDS = FALSE)
             TABLESPACE pg_default;');
         }elseif (DATABASE_TYPE == 3){
             $pdo->exec('CREATE TABLE if not exists '.DATABASE_PREFIX.'Registrations (
-        "u2fKey"	INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+        "user_id"	INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
         "user"	TEXT NOT NULL,
         "password"	TEXT NOT NULL,
-        "u2fKeyHandle"	TEXT NOT NULL,
-        "u2fPublicKey"	TEXT NOT NULL,
-        "u2fCertificate"	TEXT NOT NULL,
-        "u2fCounter"	INTEGER NOT NULL,
+        "u2fKeyHandle"	TEXT NULL,
+        "u2fPublicKey"	TEXT NULL,
+        "u2fCertificate"    TEXT NULL,
+        "u2fCounter"	INTEGER NULL,
         "rights"	INTEGER NOT NULL,
-        "oldPassword"	TEXT,
+        "oldPassword"	TEXT NULL,
         "active"	INTEGER NOT NULL,
-        "phoneNumber"	TEXT,
-        "versionLib"	TEXT NOT NULL,
+        "phoneNumber"	TEXT NULL,
+        "versionLib"	TEXT NULL,
         "ipv4"	TEXT NOT NULL,
-        "ipv6"	TEXT,
+        "ipv6"	TEXT NULL,
         "agePassword"	INTEGER NOT NULL
         );');
         }
@@ -341,30 +357,59 @@ private static function _settingAttributesPDO($pdo){
             }
     }
 
+    /**
+     * Define the strength of the user's password
+     *
+     * @param string $pass could be from form or other
+     */
+    private function _passwordStrength($pass){
+        $strength = PASSWORD_STRENGTH;
+        if($strength > count(PASSWORD_PATTERN)){
+            $strength = count(PASSWORD_PATTERN)-1;
+        }
+        $password = preg_match(PASSWORD_PATTERN[$strength], $pass);
+        return $password;
+    }
 
 
+    /**
+     * Create a password to user account
+     *
+     * @return $password
+     */
+    private function _createPasswd($pass)
+    {
+//        PASSWORD_LIFE = 1; //(en jour)
+        $password = self::_passwordStrength($pass);
+        var_dump($password);
+//        if(!empty($pass){
+//            $pdo = self::_initPdo();
+//            $password = password_hash($pass, PASSWORD_BCRYPT);
+//            self::_setBDD("INSERT INTO prefix_Registrations ('password') VALUES (?)", $password);
+//            self::_log("createAccount", 3, $pdo->lastInsertId());
+//        }else{
+//            echo "le mot de passe ne correspond pas aux criteres";
+//        }
+    }
 
     /**
      * Create an user and add a log
      *
      * @return true
      */
-//    private static function _create()
+//    private static function _create($user, $pass, $rights, $phone= NULL)
 //    {
-//        self::_setBDD("insert into registrations values (?, ?, ?, )", );
-//        self::_log();
+//        if()
+//            if(!empty($user) || preg_match('/[a-zA-Z0-9_]/', $user)){
+//                self::_createPasswd($pass);
+//            }else{
+//                self::_setBDD("insert into prefix_Registrations values (?)", );
+//                self::_log();
+//            }
 //    }
-//
-//    /**
-//     * Read one element on database
-//     *
-//     * @param string $param name of column Name from database
-//     *
-//     * @return true
-//     */
-//    private function _read($param)
-//    {
-//    }
+
+
+
 //
 //    /**
 //     * Read all elements on database
@@ -423,20 +468,8 @@ private static function _settingAttributesPDO($pdo){
 //
 //    }
 //
-//    /**
-//     * Create a password to user account
-//     *
-//     * @return true
-//     */
-//    private function _createPasswd()
-//    {
-//        checkPasswd(){
-//            regPasswd()
-//            {
-//            createLog();
-//            }
-//        }
-//    }
+
+
 //
 //    /**
 //     * Read folders and check if -require "lib"- is here
