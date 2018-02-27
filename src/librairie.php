@@ -32,6 +32,28 @@ const DOUBLEFA = 0;
 const DOUBLEFA_SMS_TEXT = "this is your code";
 
 /**
+ * The kind of ID for user connect
+ * 0 no check
+ * 1 email
+ * 2 array of pattern
+ */
+const ID_TYPE = 2;
+
+/**
+ * Pattern as an array for ID
+ * In this way you can add some more patterns
+ * On first cell, you have an example for username pattern
+ * but on the second cell, it's for number phone.
+ * Actually it's for french numbers, so it checks for ten numbers
+ * You can change it as you want.
+ */
+const ID_PATTERN = array(
+    '`^[[:alnum:]]{4,8}$`',
+    '/^[a-zA-Z0-9_]+$/',
+    '#^.{10,}$#',
+);
+
+/**
  * Number of attempt failed
  * 0(desactivate)
  * 1(1)
@@ -56,20 +78,20 @@ const PASSWORD_LENGHT = 8;
  * 2(numbers + uppercase)
  * 3(numbers + uppercase + special caracters)
  */
-const PASSWORD_STRENGTH = 12;
+const PASSWORD_STRENGTH = 3;
 
 /**
- * Pattern as an array
+ * Pattern as an array for Password
  * In this way you can add some more patterns
+ * [1] Only the lenght will be tested
+ * [2] the lenght + numbers
+ * [3] the lenght + numbers + uppercase
+ * [4] the lenght + numbers + uppercase + special caracters
  */
 const PASSWORD_PATTERN =  array(
-    //Only the lenght will be tested
     '#^.{'.PASSWORD_LENGHT.',}$#',
-    //the lenght + numbers
     '#^(?=.*[a-z])(?=.*[0-9]).{'.PASSWORD_LENGHT.',}$#',
-    //the lenght + numbers + uppercase
     '#^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9]).{'.PASSWORD_LENGHT.',}$#',
-    //the lenght + numbers + uppercase + special caracters
     '#^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*\W).{'.PASSWORD_LENGHT.',}$#'
     );
 
@@ -79,7 +101,7 @@ const PASSWORD_PATTERN =  array(
  * 2(2 days)
  * ...
  */
-const PASSWORD_LIFE = 1;
+const PASSWORD_LIFE = 10;
 
 /**
  * Activate/desactivate if user could change his password with an old password
@@ -166,7 +188,16 @@ const DATABASE_PREFIX = "prefix_";
  */
 const FORCE_SSL = 0;
 
+const ERROR_PASSWORD_TOO_SHORT = 1;
+const ERROR_PASSWORD_STRENGTH = 2;
+const ERROR_ID_PATTERN_ERROR = 3;
 
+const ERROR_TEXT = array(
+    "OK",
+    "password trop court",
+    "mot de passe trop faible",
+    "identifiant ne correspond pas au pattern"
+);
 
 /**
  * Class Library php
@@ -182,6 +213,9 @@ const FORCE_SSL = 0;
  */
 class Library
 {
+    public static $lastErrorCode;
+    public static $lastErrorText;
+
     /**
      * Library constructor.
      */
@@ -191,12 +225,37 @@ class Library
         //Valide self::_initPdo();
         //self::_setBDD("INSERT INTO ".DATABASE_PREFIX."Registrations (`user`) VALUES (?)", array('michel'));
         //Valide self::_initTable($pdo);
-        self::_createPasswd("p0?Awetpwet?");
+        //valide self::_createPasswd("p?0Awetpwet?");
+        self::_createUser("jean?", "pwert?0Ayuetpwet" );
+        //valide echo self::_checkPasswordLifetime(time()-864000);
     }
 
 
     /**
+     * Set error on var and
+     * Return last error
      *
+     * @param int $errorCode error number
+     */
+    private static function _error($errorCode){
+        self::$lastErrorCode = $errorCode;
+        self::$lastErrorText = ERROR_TEXT[$errorCode];
+    }
+
+    /**
+     * Get last error
+     *
+     * @return array
+     */
+    public static function _getLastError(){
+        return (array(self::$lastErrorCode, self::$lastErrorText));
+    }
+
+
+    /**
+     *Initiate a table in order of the databade type
+     *
+     * @param object $pdo is the pdo from the _initPDO() function
      */
     private static function _initTable($pdo){
         if(DATABASE_TYPE == 1){
@@ -266,7 +325,7 @@ private static function _settingAttributesPDO($pdo){
 
 
     /**
-     * Initiate object PDO
+     * Initiate PDO
      *
      * @return $pdo
      */
@@ -327,9 +386,8 @@ private static function _settingAttributesPDO($pdo){
         $set = $pdo->prepare($req);
         //var_dump($pdo->errorInfo());
         $set->execute($param);
-        $error = var_dump($set->errorInfo());
+        //var_dump($set->errorInfo());
         //self::_log($error, 10, 1);
-        //insert Mysql INSERT INTO `table` (`id`, `nom`) VALUES (NULL, 'pierre'), (NULL, 'paul'), (NULL, 'jacques');
     }
 
 
@@ -342,7 +400,7 @@ private static function _settingAttributesPDO($pdo){
      *
      * @return true
      */
-    private static function _log($action, $level, $user_id)
+    private static function _log($action, $level, $user_id = NULL)
     {
             if (LOG > 0 && LOG >= $level){
                 $file = LOG_PATH . 'log-'.date('Y-m-d').'.txt';
@@ -362,12 +420,21 @@ private static function _settingAttributesPDO($pdo){
      *
      * @param string $pass could be from form or other
      */
-    private function _passwordStrength($pass){
+    private static function _passwordStrength($pass){
+        $password = false;
         $strength = PASSWORD_STRENGTH;
         if($strength > count(PASSWORD_PATTERN)){
             $strength = count(PASSWORD_PATTERN)-1;
+    }
+        if(!preg_match(PASSWORD_PATTERN[$strength], $pass)){
+            if(PASSWORD_LENGHT > strlen($pass)) {
+                self::_error(ERROR_PASSWORD_TOO_SHORT);
+                }else{
+            self::_error(ERROR_PASSWORD_STRENGTH);
+                }
+        }else{
+            $password = true;
         }
-        $password = preg_match(PASSWORD_PATTERN[$strength], $pass);
         return $password;
     }
 
@@ -375,38 +442,94 @@ private static function _settingAttributesPDO($pdo){
     /**
      * Create a password to user account
      *
-     * @return $password
+     * @param string $pass could be from form or other
      */
-    private function _createPasswd($pass)
+    private static function _validPasswd($pass)
     {
-//        PASSWORD_LIFE = 1; //(en jour)
-        $password = self::_passwordStrength($pass);
-        var_dump($password);
-//        if(!empty($pass){
-//            $pdo = self::_initPdo();
-//            $password = password_hash($pass, PASSWORD_BCRYPT);
-//            self::_setBDD("INSERT INTO prefix_Registrations ('password') VALUES (?)", $password);
-//            self::_log("createAccount", 3, $pdo->lastInsertId());
-//        }else{
-//            echo "le mot de passe ne correspond pas aux criteres";
-//        }
+        if(!empty($pass) && self::_passwordStrength($pass) != 0) {
+            $pdo = self::_initPdo();
+            $password = password_hash($pass, PASSWORD_BCRYPT);
+            return ($password);
+        }
+    }
+
+
+    /**
+     * @param $user
+     * @return bool|int
+     */
+    private static function _checkUserID($user){
+        echo $user;
+        if(!empty($user)) {
+            if (ID_TYPE == 0) {
+                $res = true;
+            } elseif (ID_TYPE == 1) {
+                if(!filter_var($user, FILTER_VALIDATE_EMAIL)){
+                $res = false;
+                self::_error(ERROR_ID_PATTERN_ERROR);
+                }else{
+                    $res = true;
+                }
+            } elseif (ID_TYPE > 1) {
+                echo ID_PATTERN[ID_TYPE - 2] . "\n";
+                var_dump(preg_match(ID_PATTERN[ID_TYPE - 2], $user));
+                if(preg_match(ID_PATTERN[ID_TYPE - 2], $user)){
+                    $res = true;
+                }else{
+                    $res = false;
+                    self::_error(ERROR_ID_PATTERN_ERROR);
+                }
+            }
+        }
+        return $res;
     }
 
     /**
      * Create an user and add a log
      *
+     * @param mixed $user
+     * @param mixed $pass
+     * @param int   $rights
+     * @param string $phone
+     *
      * @return true
      */
-//    private static function _create($user, $pass, $rights, $phone= NULL)
-//    {
-//        if()
-//            if(!empty($user) || preg_match('/[a-zA-Z0-9_]/', $user)){
-//                self::_createPasswd($pass);
-//            }else{
-//                self::_setBDD("insert into prefix_Registrations values (?)", );
-//                self::_log();
-//            }
-//    }
+    private static function _createUser($user, $pass, $rights=0, $phone= NULL)
+    {
+        $pdo = self::_initPdo();
+        if (self::_checkUserID($user)) {
+            $password = self::_validPasswd($pass);
+            //var_dump($password);
+            //self::_setBDD(
+            //"INSERT INTO prefix_Registrations ('user', 'password', 'passwordBirthday')
+            //VALUES (?, ?, ?)",
+            //$user, $password, time()
+            //);
+            //self::_log("user created", 10, $pdo->lastInsertId());
+        } else {
+            self::_error(ERROR_ID_PATTERN_ERROR);
+            //self::_log("user create attempt failed", 10);
+        }
+    }
+
+
+
+    /**
+     * Check the lifetime of the password registered on database
+     *
+     * @param timestamp $passwordBirthday registered on database
+     *
+     * @return $res;
+     */
+    private static function _checkPasswordLifetime($passwordBirthday)
+    {
+        if(($passwordBirthday + (PASSWORD_LIFE*86400)) < time()){
+           $res = 0;
+        }else{
+            $res = 1;
+        }
+        return $res;
+    }
 
 
 
@@ -535,3 +658,7 @@ private static function _settingAttributesPDO($pdo){
 }
 
 $test = new Library();
+print_r($test::_getLastError());
+//if($test::_getLastError()[0] == ERROR_PASSWORD_TOO_SHORT){
+//    ERROR_TEXT[ERROR_PASSWORD_TOO_SHORT];
+//}
