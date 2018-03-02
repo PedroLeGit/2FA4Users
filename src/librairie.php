@@ -37,7 +37,7 @@ const DOUBLEFA_SMS_TEXT = "this is your code";
  * 1 email
  * 2 array of pattern
  */
-const ID_TYPE = 2;
+const ID_TYPE = 1;
 
 /**
  * Pattern as an array for ID
@@ -48,7 +48,7 @@ const ID_TYPE = 2;
  * You can change it as you want.
  */
 const ID_PATTERN = array(
-    '`^[[:alnum:]]{4,8}$`',
+    //'`^[[:alnum:]]{4,8}$`',
     '/^[a-zA-Z0-9_]+$/',
     '#^.{10,}$#',
 );
@@ -78,7 +78,7 @@ const PASSWORD_LENGHT = 8;
  * 2(numbers + uppercase)
  * 3(numbers + uppercase + special caracters)
  */
-const PASSWORD_STRENGTH = 3;
+const PASSWORD_STRENGTH = 1;
 
 /**
  * Pattern as an array for Password
@@ -104,10 +104,18 @@ const PASSWORD_PATTERN =  array(
 const PASSWORD_LIFE = 10;
 
 /**
- * Activate/desactivate if user could change his password with an old password
+ * Desactivate/activate if user could change his password with an old password
  * already registered by this user
  */
-const PASSWORD_REGISTER = 0;
+const PASSWORD_REGISTER = 1;
+
+/**
+ * If PASSWORD_REGISTER is ON
+ * this constant define how many old passowrds
+ * could be stored in database before purge the first one
+ * who is the older stored
+ */
+const PASSWORD_MAX_REGISTER = 5;
 
 /**
  * Automatic disconnection after few minutes
@@ -142,13 +150,14 @@ const LOG = 3;
  */
 const LOG_PATH = "log/";
 
+
 /**
  * Define the type of database you have to user for the project
  * 1 MySQL
  * 2 Postgres
  * 3 SQLite
  */
-const DATABASE_TYPE = 3;
+const DATABASE_TYPE = 1;
 
 /**
  * Determine the host of the database
@@ -164,14 +173,14 @@ const DATABASE_PORT = "5432";
 /**
  * The name of your database
  * If you are using sqlite, please write the name of the file, followed by .sqlite.db
- * sqlite:nom_fichier.sqlite.db
+ * users.sqlite.db
  */
-const DATABASE_NAME = "nom_fichier.sqlite.db";
+const DATABASE_NAME = "test";
 
 /**
  * ID's you're using to connect on database
  */
-const DATABASE_USER = "postgres";
+const DATABASE_USER = "root";
 
 /**
  * Password you're using to connect on database
@@ -188,16 +197,39 @@ const DATABASE_PREFIX = "prefix_";
  */
 const FORCE_SSL = 0;
 
+const ERROR_OK = 0;
 const ERROR_PASSWORD_TOO_SHORT = 1;
 const ERROR_PASSWORD_STRENGTH = 2;
 const ERROR_ID_PATTERN_ERROR = 3;
+const ERROR_ID_ALREADY_EXISTS = 4;
+const ERROR_UPDATE_FAILED = 5;
+const ERROR_ACTIVE = 6;
+const ERROR_ID_DOESNT_EXIST = 7;
+const ERROR_ID_NEW_USERID_EQUAL_OLD_USER_ID = 8;
+const ERROR_PASSWORD_ALREADY_EXISTS = 9;
 
 const ERROR_TEXT = array(
     "OK",
-    "password trop court",
-    "mot de passe trop faible",
-    "identifiant ne correspond pas au pattern"
+    "Password trop court",
+    "Mot de passe trop faible",
+    "Identifiant ne correspond pas au pattern",
+    "Cet utilisateur existe deja",
+    "La mise a jour de l'element a echouee",
+    "L'element actif ne prend que 0 ou 1",
+    "Cet utilisateur n'existe pas",
+    "Le nouvel identifiant est identique a l'ancien",
+    "Le mot de passe est un ancien mot de passe deja enregistre"
 );
+
+/**
+ * Library version
+ */
+const VERSION_LIB = 001;
+
+/**
+ * Define time for session active before deconnection
+ */
+const SESSION_TIME_BEFORE_DECO = 300;
 
 /**
  * Class Library php
@@ -223,11 +255,18 @@ class Library
     {
         //Valide self::_log("Connexion", 1, 1);
         //Valide self::_initPdo();
-        //self::_setBDD("INSERT INTO ".DATABASE_PREFIX."Registrations (`user`) VALUES (?)", array('michel'));
+        //self::_setBDD("INSERT INTO ".DATABASE_PREFIX."Registrations (`user`)
+        // VALUES (?)", array('michel'));
         //Valide self::_initTable($pdo);
         //valide self::_createPasswd("p?0Awetpwet?");
-        self::_createUser("jean?", "pwert?0Ayuetpwet" );
+        //valide self::_checkUserID("jean?");
+        //valide pour les 3 SGBD
+        //self::_createUser("jb", "pwert?0Ayuetpwet");
+        //valide pour les 3 SGBD self::_updateRights(4, "jb");
         //valide echo self::_checkPasswordLifetime(time()-864000);
+        //self::_updateActive();
+        //valide self::_updateUserID("jb", "jf@gmail.fr");
+        //valide self::_updatePassword("cquetuveux", "qwertyui11");
     }
 
 
@@ -236,8 +275,11 @@ class Library
      * Return last error
      *
      * @param int $errorCode error number
+     *
+     * @return void
      */
-    private static function _error($errorCode){
+    private static function _error($errorCode)
+    {
         self::$lastErrorCode = $errorCode;
         self::$lastErrorText = ERROR_TEXT[$errorCode];
     }
@@ -247,81 +289,84 @@ class Library
      *
      * @return array
      */
-    public static function _getLastError(){
+    public static function getLastError()
+    {
         return (array(self::$lastErrorCode, self::$lastErrorText));
     }
 
 
     /**
-     *Initiate a table in order of the databade type
+     * Initiate a table in order of the databade type
      *
      * @param object $pdo is the pdo from the _initPDO() function
+     *
+     * @return void
      */
-    private static function _initTable($pdo){
-        if(DATABASE_TYPE == 1){
-            $res = $pdo->exec("CREATE TABLE if not exists `".DATABASE_PREFIX."Registrations`( 
-            `user_id` SERIAL NOT NULL AUTO_INCREMENT ,
-            `user` VARCHAR(50) NOT NULL ,  
+    private static function _initTable($pdo)
+    {
+        if (DATABASE_TYPE == 1) {
+            $res = $pdo->exec(
+                "CREATE TABLE if not exists `".DATABASE_PREFIX."registrations`( 
+            `id` SERIAL NOT NULL AUTO_INCREMENT ,
+            `user_id` VARCHAR(50) NOT NULL ,  
             `password` VARCHAR(60) NOT NULL ,
-            `u2fKeyHandle` VARCHAR(255) NULL ,
-            `u2fPublicKey` VARCHAR(255) NULL ,
-            `u2fCertificate` TEXT NULL ,
-            `u2fCounter` INT NULL ,
+            `u2f_key_handle` VARCHAR(255) NULL ,
+            `u2f_public_key` VARCHAR(255) NULL ,
+            `u2f_certificate` TEXT NULL ,
+            `u2f_counter` INT NULL ,
             `rights` INT NOT NULL ,
-            `oldPassword` VARCHAR(255) NULL ,
-            `active` BOOLEAN NOT NULL ,
-            `phoneNumber` VARCHAR(10) NULL ,
-            `versionLib` VARCHAR(50) NULL ,
-            `ipv4` VARCHAR(15) NOT NULL ,
+            `old_password` LONGTEXT NULL ,
+            `active` INTEGER NOT NULL ,
+            `phone_number` VARCHAR(10) NULL ,
+            `version_lib` VARCHAR(50) NULL ,
+            `ipv4` VARCHAR(15) NULL ,
             `ipv6` VARCHAR(36) NULL ,
-            `agePassword` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP )
-            ENGINE = InnoDB;
-            ");
-        }elseif (DATABASE_TYPE == 2){
-            $pdo->exec('CREATE TABLE if not exists '.DATABASE_PREFIX.'Registrations (
-            "user_id" integer NOT NULL,
-            "user" character varying(50) COLLATE pg_catalog."default" NOT NULL,
+            `password_birth` INTEGER NOT NULL)
+            ENGINE = InnoDB "
+            );
+        } elseif (DATABASE_TYPE == 2) {
+            $pdo->exec(
+                'CREATE TABLE if not exists '.DATABASE_PREFIX.'registrations (
+            "id" SERIAL,
+            "user_id" character varying(50) COLLATE pg_catalog."default" NOT NULL,
             "password" character varying(60) COLLATE pg_catalog."default" NOT NULL,
-            "u2fKeyHandle" character varying(255) COLLATE pg_catalog."default" NULL,
-            "u2fPublicKey" character varying(255) COLLATE pg_catalog."default" NULL,
-            "u2fCertificate" text COLLATE pg_catalog."default" NULL,
-            "u2fCounter" integer NULL,
+            "u2f_key_handle" character varying(255) COLLATE pg_catalog."default" NULL,
+            "u2f_public_key" character varying(255) COLLATE pg_catalog."default" NULL,
+            "u2f_certificate" text COLLATE pg_catalog."default" NULL,
+            "u2f_counter" integer NULL,
             "rights" integer NOT NULL,
-            "oldPassword" character varying(255) COLLATE pg_catalog."default" NULL,
-            "active" boolean NOT NULL,
-            "phoneNumber" character varying(10) COLLATE pg_catalog."default" NULL,
-            "versionLib" character varying(50) COLLATE pg_catalog."default" NULL,
-            "ipv4" character varying(15) COLLATE pg_catalog."default" NOT NULL,
+            "old_password" text COLLATE pg_catalog."default" NULL,
+            "active" integer NOT NULL,
+            "phone_number" character varying(10) COLLATE pg_catalog."default" NULL,
+            "version_lib" character varying(50) COLLATE pg_catalog."default" NULL,
+            "ipv4" character varying(15) COLLATE pg_catalog."default" NULL,
             "ipv6" character varying(36) COLLATE pg_catalog."default" NULL,
-            "agePassword" timestamp without time zone NOT NULL,
-            CONSTRAINT '.DATABASE_PREFIX.'Registrations_pkey PRIMARY KEY ("u2fKey_id"))
+            "password_birth" integer NOT NULL,
+            CONSTRAINT '.DATABASE_PREFIX.'Registrations_pkey PRIMARY KEY ("id"))
             WITH (OIDS = FALSE)
-            TABLESPACE pg_default;');
-        }elseif (DATABASE_TYPE == 3){
-            $pdo->exec('CREATE TABLE if not exists '.DATABASE_PREFIX.'Registrations (
-        "user_id"	INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-        "user"	TEXT NOT NULL,
-        "password"	TEXT NOT NULL,
-        "u2fKeyHandle"	TEXT NULL,
-        "u2fPublicKey"	TEXT NULL,
-        "u2fCertificate"    TEXT NULL,
-        "u2fCounter"	INTEGER NULL,
-        "rights"	INTEGER NOT NULL,
-        "oldPassword"	TEXT NULL,
-        "active"	INTEGER NOT NULL,
-        "phoneNumber"	TEXT NULL,
-        "versionLib"	TEXT NULL,
-        "ipv4"	TEXT NOT NULL,
-        "ipv6"	TEXT NULL,
-        "agePassword"	INTEGER NOT NULL
-        );');
+            TABLESPACE pg_default;'
+            );
+        } elseif (DATABASE_TYPE == 3) {
+            $pdo->exec(
+                'CREATE TABLE if not exists '.DATABASE_PREFIX.'registrations (
+            "id"	INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            "user_id"	TEXT NOT NULL,
+            "password"	TEXT NOT NULL,
+            "u2f_key_handle"	TEXT NULL,
+            "u2f_public_key"	TEXT NULL,
+            "u2f_certificate"    TEXT NULL,
+            "u2f_counter"	INTEGER NULL,
+            "rights"	INTEGER NOT NULL,
+            "old_password"	TEXT NULL,
+            "active"	INTEGER NOT NULL,
+            "phone_number"	TEXT NULL,
+            "version_lib"	TEXT NULL,
+            "ipv4"	TEXT NULL,
+            "ipv6"	TEXT NULL,
+            "password_birth"	INTEGER NOT NULL );'
+            );
         }
     }
-
-private static function _settingAttributesPDO($pdo){
-    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_OBJ);
-}
 
 
     /**
@@ -336,18 +381,17 @@ private static function _settingAttributesPDO($pdo){
                 'mysql:host=' . DATABASE_HOST.
                     ';dbname='.DATABASE_NAME,
                 DATABASE_USER,
-                DATABASE_PASSWORD);
-            //self::_settingAttributesPDO($pdo);
+                DATABASE_PASSWORD
+            );
         } elseif (DATABASE_TYPE == 2) {
             $pdo = new PDO(
                 'pgsql:host=' . DATABASE_HOST .
                 ';dbname=' . DATABASE_NAME .
                 ';user=' . DATABASE_USER .
-                ';password=' . DATABASE_PASSWORD);
-            //self::_settingAttributesPDO($pdo);
+                ';password=' . DATABASE_PASSWORD
+            );
         } elseif (DATABASE_TYPE == 3) {
             $pdo = new PDO('sqlite:' . DATABASE_NAME);
-            //self::_settingAttributesPDO($pdo);
         } else {
             exit();
         }
@@ -367,26 +411,25 @@ private static function _settingAttributesPDO($pdo){
     {
         $pdo = self::_initPdo();
         $get = $pdo->prepare($req);
+        var_dump($pdo->errorInfo());
         $get->execute($param);
+        var_dump($pdo->errorInfo());
         $res = $get->fetchAll();
         return $res;
     }
-
     /**
      * Request to set elements on database
      *
      * @param string $req   request
      * @param array  $param is the element to add on database
-     *
-     * @return true
      */
     private static function _setBDD($req, $param)
     {
         $pdo = self::_initPdo();
         $set = $pdo->prepare($req);
-        //var_dump($pdo->errorInfo());
+        var_dump($pdo->errorInfo());
         $set->execute($param);
-        //var_dump($set->errorInfo());
+        var_dump($set->errorInfo());
         //self::_log($error, 10, 1);
     }
 
@@ -396,23 +439,22 @@ private static function _settingAttributesPDO($pdo){
      * create a new log file each day
      *
      * @param string $action  describe the log
+     * @param int    $level   level of numbers of enabled logs
      * @param int    $user_id used to find who created the log
-     *
-     * @return true
      */
-    private static function _log($action, $level, $user_id = NULL)
+    private static function _log($action, $level, $user_id = null)
     {
-            if (LOG > 0 && LOG >= $level){
-                $file = LOG_PATH . 'log-'.date('Y-m-d').'.txt';
-                if(!file_exists($file)){
-                    $text = " Date ; User id ; Action \n";
-                    file_put_contents($file, $text, FILE_APPEND | LOCK_EX);
-                }
-                $date = date('d/m/Y H:i:s');
-                //CSV format
-                $text = $date.';'.$user_id.';'.$action."\n";
+        if (LOG > 0 && LOG >= $level) {
+            $file = LOG_PATH . 'log-'.date('Y-m-d').'.txt';
+            if (!file_exists($file)) {
+                $text = " Date ; User id ; Action \n";
                 file_put_contents($file, $text, FILE_APPEND | LOCK_EX);
             }
+            $date = date('d/m/Y H:i:s');
+            //CSV format
+            $text = $date.';'.$user_id.';'.$action."\n";
+            file_put_contents($file, $text, FILE_APPEND | LOCK_EX);
+        }
     }
 
     /**
@@ -420,19 +462,20 @@ private static function _settingAttributesPDO($pdo){
      *
      * @param string $pass could be from form or other
      */
-    private static function _passwordStrength($pass){
+    private static function _passwordStrength($pass)
+    {
         $password = false;
         $strength = PASSWORD_STRENGTH;
-        if($strength > count(PASSWORD_PATTERN)){
+        if ($strength > count(PASSWORD_PATTERN)) {
             $strength = count(PASSWORD_PATTERN)-1;
-    }
-        if(!preg_match(PASSWORD_PATTERN[$strength], $pass)){
-            if(PASSWORD_LENGHT > strlen($pass)) {
+        }
+        if (!preg_match(PASSWORD_PATTERN[$strength], $pass)) {
+            if (PASSWORD_LENGHT > strlen($pass)) {
                 self::_error(ERROR_PASSWORD_TOO_SHORT);
-                }else{
-            self::_error(ERROR_PASSWORD_STRENGTH);
-                }
-        }else{
+            } else {
+                self::_error(ERROR_PASSWORD_STRENGTH);
+            }
+        } else {
             $password = true;
         }
         return $password;
@@ -443,11 +486,12 @@ private static function _settingAttributesPDO($pdo){
      * Create a password to user account
      *
      * @param string $pass could be from form or other
+     *
+     * @return $password
      */
     private static function _validPasswd($pass)
     {
-        if(!empty($pass) && self::_passwordStrength($pass) != 0) {
-            $pdo = self::_initPdo();
+        if (!empty($pass) && self::_passwordStrength($pass) != 0) {
             $password = password_hash($pass, PASSWORD_BCRYPT);
             return ($password);
         }
@@ -455,27 +499,30 @@ private static function _settingAttributesPDO($pdo){
 
 
     /**
+     * Check the kind of user ID
+     * See constant to have some more info
+     *
      * @param $user
-     * @return bool|int
+     *
+     * @return bool
      */
-    private static function _checkUserID($user){
-        echo $user;
-        if(!empty($user)) {
+    private static function _checkUserID($user)
+    {
+        if (!empty($user)) {
             if (ID_TYPE == 0) {
                 $res = true;
             } elseif (ID_TYPE == 1) {
-                if(!filter_var($user, FILTER_VALIDATE_EMAIL)){
-                $res = false;
-                self::_error(ERROR_ID_PATTERN_ERROR);
-                }else{
+                if (!filter_var($user, FILTER_VALIDATE_EMAIL)) {
+                    $res = false;
+                    self::_error(ERROR_ID_PATTERN_ERROR);
+                } else {
                     $res = true;
                 }
             } elseif (ID_TYPE > 1) {
-                echo ID_PATTERN[ID_TYPE - 2] . "\n";
-                var_dump(preg_match(ID_PATTERN[ID_TYPE - 2], $user));
-                if(preg_match(ID_PATTERN[ID_TYPE - 2], $user)){
+                //var_dump(preg_match(ID_PATTERN[ID_TYPE - 2], $user));
+                if (preg_match(ID_PATTERN[ID_TYPE - 2], $user)) {
                     $res = true;
-                }else{
+                } else {
                     $res = false;
                     self::_error(ERROR_ID_PATTERN_ERROR);
                 }
@@ -487,31 +534,41 @@ private static function _settingAttributesPDO($pdo){
     /**
      * Create an user and add a log
      *
-     * @param mixed $user
-     * @param mixed $pass
-     * @param int   $rights
+     * @param mixed  $user
+     * @param mixed  $pass
+     * @param int    $rights
      * @param string $phone
      *
-     * @return true
+     * @return
      */
-    private static function _createUser($user, $pass, $rights=0, $phone= NULL)
+    private static function _createUser($user, $pass, $rights=0, $phone=null)
     {
         $pdo = self::_initPdo();
-        if (self::_checkUserID($user)) {
-            $password = self::_validPasswd($pass);
-            //var_dump($password);
-            //self::_setBDD(
-            //"INSERT INTO prefix_Registrations ('user', 'password', 'passwordBirthday')
-            //VALUES (?, ?, ?)",
-            //$user, $password, time()
-            //);
-            //self::_log("user created", 10, $pdo->lastInsertId());
+        $result = self::_getBDD(
+            "SELECT user_id FROM ".DATABASE_PREFIX."registrations 
+            WHERE user_id = ?",
+            array($user)
+        );
+        if (count($result) == 0) {
+            if (self::_checkUserID($user)) {
+                $password = self::_validPasswd($pass);
+                self::_setBDD(
+                    "INSERT INTO ".DATABASE_PREFIX."registrations 
+                    (user_id, password, rights, active, password_birth)
+                    VALUES (?, ?, ?, ?, ?)",
+                    array($user, $password, $rights, 1, time())
+                );
+                self::_error(ERROR_OK);
+                self::_log("user created", 10, $pdo->lastInsertId());
+            } else {
+                self::_error(ERROR_ID_PATTERN_ERROR);
+                self::_log("user create attempt failed", 10);
+            }
         } else {
-            self::_error(ERROR_ID_PATTERN_ERROR);
-            //self::_log("user create attempt failed", 10);
+            self::_error(ERROR_ID_ALREADY_EXISTS);
         }
-    }
 
+    }
 
 
     /**
@@ -523,9 +580,9 @@ private static function _settingAttributesPDO($pdo){
      */
     private static function _checkPasswordLifetime($passwordBirthday)
     {
-        if(($passwordBirthday + (PASSWORD_LIFE*86400)) < time()){
-           $res = 0;
-        }else{
+        if (($passwordBirthday + (PASSWORD_LIFE*86400)) < time()) {
+            $res = 0;
+        } else {
             $res = 1;
         }
         return $res;
@@ -533,132 +590,312 @@ private static function _settingAttributesPDO($pdo){
 
 
 
-//
-//    /**
-//     * Read all elements on database
-//     *
-//     * @return true
-//     */
-//    private function _readAll()
-//    {
-//    }
-//
-//    /**
-//     * Update an element on database
-//     *
-//     * @param int $user_id is the element to update on database
-//     *
-//     * @return true
-//     */
-//    private function _update($user_id)
-//    {
-//        createLog(){}
-//    }
-//
-//    /**
-//     * Delete an element on database
-//     *
-//     * @param int $user_id is the element to delete on database
-//     *
-//     * @return true
-//     */
-//    private function _delete($user_id)
-//    {
-//        createLog(){}
-//    }
-//
-//    /**
-//     * Disable an user account
-//     *
-//     * @param int $user_id is the element to disable on database
-//     *
-//     * @return true
-//     */
-//    private function _disable($user_id)
-//    {
-//        createLog(){}
-//    }
-//
-//    /**
-//     * Give rights to users
-//     *
-//     * @param int $user_id is the element to attribut rights on database
-//     *
-//     * @return true
-//     */
-//    private function _rights($user_id)
-//    {
-//
-//    }
-//
+    /**
+     * Update rights on database
+     *
+     * @param int   $rights is the element to update on database
+     * @param mixed $user   is the ID of user for WHERE condition
+     *
+     * @return void
+     */
+    private static function _updateRights($rights, $user)
+    {
+        if (self::_updateBDD(
+            "UPDATE ".DATABASE_PREFIX."
+            registrations SET rights = ? WHERE user_id = ?",
+            array($rights, $user))) {
+            self::_error(ERROR_OK);
+        } else {
+            self::_error(ERROR_UPDATE_FAILED);
+        }
+    }
+
+    /**
+     * Update active on database
+     *
+     * @param int   $active is the element to update on database
+     * @param mixed $user   is the ID of user for WHERE condition
+     *
+     * @return void
+     */
+    private static function _updateActive($active, $user)
+    {
+        if ($active == 0 || $active == 1) {
+            if (self::_updateBDD(
+                "UPDATE ".DATABASE_PREFIX."
+                registrations SET active = ? WHERE user_id = ?",
+                array($active, $user))) {
+                self::_error(ERROR_OK);
+            }else{
+                self::_error(ERROR_UPDATE_FAILED);
+            }
+        }else{
+            self::_error(ERROR_ACTIVE);
+        }
+    }
 
 
-//
-//    /**
-//     * Read folders and check if -require "lib"- is here
-//     *
-//     * @param string $path indicate path of root files of project
-//     *
-//     * @return true
-//     */
-//    private function _readFolder($path)
-//    {
-//    }
-//
-//    /**
-//     * Session disconnect user
-//     *
-//     * @return true
-//     */
-//    private function _deconnection()
-//    {
-//        $time = AUTO_DISCONNECT;
-//        session_destroy();
-//        createLog();
-//    }
-//
-//    /**
-//     * Check old passwords if user is able to or unable to register with
-//     *
-//     * @return true
-//     */
-//    private function _connectOld()
-//    {
-//        read(){
-//            create();
-//        }
-//        createLog();
-//    }
-//
-//    /**
-//     * Disconnect user after few secondes
-//     *
-//     * @return true
-//     */
-//    private function _decoIfNoAnswer()
-//    {
-//        deconnection(){
-//            createLog(){}
-//        }
-//    }
-//
-//    /**
-//     * Should be able to update the library
-//     *
-//     * @return true
-//     */
-//    private function _upDateLib()
-//    {
-//
-//    }
-//
-//
+    /**
+     * Update user ID
+     *
+     * @param mixed $oldUser
+     * @param mixed $newUser
+     *
+     * @return void
+     */
+    private static function _updateUserID($oldUser, $newUser)
+    {
+        if ($newUser != $oldUser) {
+            $result = self::_getBDD(
+                "SELECT user_id FROM ".DATABASE_PREFIX."registrations 
+            WHERE user_id = ? OR user_id = ?", array($oldUser, $newUser)
+            );
+            //var_dump($result);
+
+            if ((isset($result[0]['user_id'])
+                    && $result[0]['user_id'] == $oldUser)
+                || (isset($result[1]['user_id'])
+                    && $result[1]['user_id'] == $oldUser)
+            ) {
+                if ((isset($result[0]['user_id'])
+                        && $result[0]['user_id'] == $newUser)
+                    || (isset($result[1]['user_id'])
+                        && $result[1]['user_id'] == $newUser)
+                ) {
+                    self::_error(ERROR_ID_ALREADY_EXISTS);
+                } else {
+                    if (self::_checkUserID($newUser)) {
+                        self::_setBDD(
+                            "UPDATE " . DATABASE_PREFIX . "registrations SET user_id = ? 
+                            WHERE user_id = ?",
+                            array($newUser, $oldUser)
+                        );
+                        self::_error(ERROR_OK);
+                    } else {
+                        self::_error(ERROR_ID_PATTERN_ERROR);
+                    }
+                }
+            } else {
+                self::_error(ERROR_ID_DOESNT_EXIST);
+            }
+        } else {
+            self::_error(ERROR_ID_NEW_USERID_EQUAL_OLD_USER_ID);
+        }
+    }
+
+
+    /**
+     * Update a new password
+     * and store on database old passwords
+     * If PASSWORD_REGISTER is ON, user won't be able to
+     * register an old password
+     * 
+     * @param mixed $user_id
+     * @param mixed $newPassword
+     *
+     * @return void
+     */
+    private static function _updatePassword($user_id, $newPassword)
+    {
+        $result = self::_getBDD(
+            "SELECT old_password FROM " . DATABASE_PREFIX . "registrations 
+            WHERE user_id = ?",
+            array($user_id)
+        );
+        //var_dump($result[0]['old_password']);
+        //var$result[0]['old_password'];
+        if (isset($result[0]['old_password'])
+                || (isset($result[0])
+            && is_null($result[0]['old_password']))
+        ) {
+
+            $arrayPassword = json_decode($result[0]['old_password'], true);
+            //var_dump($arrayPassword);
+            if (is_null($arrayPassword)) {
+                $arrayPassword = array();
+            }
+            $currentPass = self::_getBDD(
+                "SELECT password FROM " . DATABASE_PREFIX . "registrations 
+                WHERE user_id = ?",
+                array($user_id)
+            );
+            //var_dump($currentPass);
+            if (isset($currentPass[0]['password'])) {
+                $arrayPassword[] = $currentPass[0]['password'];
+            }
+
+            $isOldPassword = 0;
+            foreach ($arrayPassword as $value) {
+                if (PASSWORD_REGISTER == 1
+                    && $isOldPassword == 0
+                    && password_verify($newPassword, $value)
+                ) {
+                    $isOldPassword = 1;
+                    self::_error(ERROR_PASSWORD_ALREADY_EXISTS);
+                }
+            }
+            if ($isOldPassword == 0) {
+                $validPassword = self::_validPasswd($newPassword);
+                //var_dump($validPassword);
+                if ($validPassword) {
+                    //hashage du nouveau mot de passe
+                    $newPasswordHash = password_hash($newPassword, PASSWORD_BCRYPT);
+                    while (count($arrayPassword) > PASSWORD_MAX_REGISTER) {
+                        array_shift($arrayPassword);
+                    }
+
+                    $result = self::_setBDD(
+                        "UPDATE ".DATABASE_PREFIX."registrations 
+                        SET old_password = ?, password = ? WHERE user_id = ?",
+                        array(json_encode($arrayPassword), $newPasswordHash, $user_id)
+                    );
+                    //var_dump($result);
+                }
+            }
+        } else {
+            self::_error(ERROR_ID_DOESNT_EXIST);
+        }
+    }
+
+
+    /**
+     * My session start function support timestamp management
+     *
+     * @return void
+     */
+    private static function _sessionStart() 
+    {
+        session_start();
+        // Do not allow to use too old session ID
+        if (!empty($_SESSION['deleted_time'])
+            && $_SESSION['deleted_time'] < time() - SESSION_TIME_BEFORE_DECO
+        ) {
+            session_destroy();
+            session_start();
+        }
+    }
+
+
+    /**
+     * Regenerate session id
+     *
+     * @return void
+     */
+    private static function _sessionRegenerateId() 
+    {
+        // Call session_create_id() while session is active to
+        // make sure collision free.
+        if (session_status() != PHP_SESSION_ACTIVE) {
+            session_start();
+        }
+        // WARNING: Never use confidential strings for prefix!
+        $newid = session_create_id('myprefix-');
+        // Set deleted timestamp.
+        // Session data must not be deleted immediately for reasons.
+        $_SESSION['deleted_time'] = time();
+        // Finish session
+        session_commit();
+        // Make sure to accept user defined session ID
+        // NOTE: You must enable use_strict_mode for normal operations.
+        ini_set('session.use_strict_mode', 0);
+        // Set new custome session ID
+        session_id($newid);
+        // Start with custome session ID
+        session_start();
+    }
+
+    /**
+     * Destroy the active/actual session
+     *
+     * @return void
+     */
+    private static function _destroySession()
+    {
+        session_start();
+        $_SESSION = array();
+        session_destroy();
+    }
+
+
+
+    //    /**
+    //     * Disable an user account
+    //     *
+    //     * @param int $user_id is the element to disable on database
+    //     *
+    //     * @return true
+    //     */
+    //    private function _disable($user_id)
+    //    {
+    //        createLog(){}
+    //    }
+    //
+    //
+    //    /**
+    //     * Read folders and check if -require "lib"- is here
+    //     *
+    //     * @param string $path indicate path of root files of project
+    //     *
+    //     * @return true
+    //     */
+    //    private function _readFolder($path)
+    //    {
+    //    }
+    //
+    //    /**
+    //     * Session disconnect user
+    //     *
+    //     * @return true
+    //     */
+    //    private function _deconnection()
+    //    {
+    //        $time = AUTO_DISCONNECT;
+    //        session_destroy();
+    //        createLog();
+    //    }
+    //
+    //    /**
+    //     * Check old passwords if user is able to or unable to register with
+    //     *
+    //     * @return true
+    //     */
+    //    private function _connectOld()
+    //    {
+    //        read(){
+    //            create();
+    //        }
+    //        createLog();
+    //    }
+    //
+    //    /**
+    //     * Disconnect user after few secondes
+    //     *
+    //     * @return true
+    //     */
+    //    private function _decoIfNoAnswer()
+    //    {
+    //        deconnection(){
+    //            createLog(){}
+    //        }
+    //    }
+    //
+    //    /**
+    //     * Should be able to update the library
+    //     *
+    //     * @return true
+    //     */
+    //    private function _upDateLib()
+    //    {
+    //
+    //    }
+    //
+    //
 
 
 }
 
 $test = new Library();
-print_r($test::_getLastError());
+print_r($test::getLastError());
 //if($test::_getLastError()[0] == ERROR_PASSWORD_TOO_SHORT){
 //    ERROR_TEXT[ERROR_PASSWORD_TOO_SHORT];
 //}
