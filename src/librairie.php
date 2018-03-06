@@ -17,6 +17,9 @@
 
 //namespace u2fLibConnectedUser;//a changer
 
+///////////////////////////////////////////////////////////////////////////////////////////
+//********************************  DOUBLE AF CONSTANTS  ********************************//
+///////////////////////////////////////////////////////////////////////////////////////////
 /**
  * Double authenticate way:
  * 0(none)
@@ -31,13 +34,18 @@ const DOUBLEFA = 0;
  */
 const DOUBLEFA_SMS_TEXT = "this is your code";
 
+
+
+///////////////////////////////////////////////////////////////////////////////////////////
+//************************************  ID CONSTANTS  ***********************************//
+///////////////////////////////////////////////////////////////////////////////////////////
 /**
  * The kind of ID for user connect
  * 0 no check
  * 1 email
  * 2 array of pattern
  */
-const ID_TYPE = 1;
+const ID_TYPE = 2;
 
 /**
  * Pattern as an array for ID
@@ -53,6 +61,11 @@ const ID_PATTERN = array(
     '#^.{10,}$#',
 );
 
+
+
+///////////////////////////////////////////////////////////////////////////////////////////
+//********************************  PASSWORD CONSTANTS  *********************************//
+///////////////////////////////////////////////////////////////////////////////////////////
 /**
  * Number of attempt failed
  * 0(desactivate)
@@ -60,7 +73,7 @@ const ID_PATTERN = array(
  * 2(2)
  * ...
  */
-const PASSWORD_ERROR = 0;
+const PASSWORD_ATTEMPT_ERROR = 5;
 
 //si le développeur rentre un chiffre entre 1 et 7,
 // 8 lettres seront prises en compte obligatoirement
@@ -118,13 +131,20 @@ const PASSWORD_REGISTER = 1;
 const PASSWORD_MAX_REGISTER = 5;
 
 /**
- * Automatic disconnection after few minutes
- * 1(1 min)
- * 2(2 min)
+ * Time on min when number of attempt have reach limit
+ * 0 if admin have to reactivate itself on database
+ * desactivated users
+ * 1 (one minute)
+ * 2 (two minutes)
  * ...
  */
-const AUTO_DISCONNECT = 0;
+const PASSWORD_DELAY_BEFORE_RETRY = 0;
 
+
+
+///////////////////////////////////////////////////////////////////////////////////////////
+//**********************************  LOGS CONSTANTS  ***********************************//
+///////////////////////////////////////////////////////////////////////////////////////////
 /**
  * Logs management
  * 0(none)
@@ -151,6 +171,10 @@ const LOG = 3;
 const LOG_PATH = "log/";
 
 
+
+///////////////////////////////////////////////////////////////////////////////////////////
+//********************************  DATABASE CONSTANTS  *********************************//
+///////////////////////////////////////////////////////////////////////////////////////////
 /**
  * Define the type of database you have to user for the project
  * 1 MySQL
@@ -192,11 +216,11 @@ const DATABASE_PASSWORD = "1234";
  */
 const DATABASE_PREFIX = "prefix_";
 
-/**
- * Activate/Desactivate forcing browsers to connect with HTTPS protocol
- */
-const FORCE_SSL = 0;
 
+
+///////////////////////////////////////////////////////////////////////////////////////////
+//**********************************  ERRORS CONSTANTS  *********************************//
+///////////////////////////////////////////////////////////////////////////////////////////
 const ERROR_OK = 0;
 const ERROR_PASSWORD_TOO_SHORT = 1;
 const ERROR_PASSWORD_STRENGTH = 2;
@@ -207,6 +231,8 @@ const ERROR_ACTIVE = 6;
 const ERROR_ID_DOESNT_EXIST = 7;
 const ERROR_ID_NEW_USERID_EQUAL_OLD_USER_ID = 8;
 const ERROR_PASSWORD_ALREADY_EXISTS = 9;
+const ERROR_CONNECTION = 10;
+const ERROR_USER_NOT_ACTIVE = 11;
 
 const ERROR_TEXT = array(
     "OK",
@@ -218,18 +244,40 @@ const ERROR_TEXT = array(
     "L'element actif ne prend que 0 ou 1",
     "Cet utilisateur n'existe pas",
     "Le nouvel identifiant est identique a l'ancien",
-    "Le mot de passe est un ancien mot de passe deja enregistre"
+    "Le mot de passe est un ancien mot de passe deja enregistre",
+    "Identifiant et/ou mot de passe incorrect",
+    "Utilisateur desactive"
 );
 
-/**
- * Library version
- */
-const VERSION_LIB = 001;
 
+
+///////////////////////////////////////////////////////////////////////////////////////////
+//*********************************  SESSION CONSTANTS  *********************************//
+///////////////////////////////////////////////////////////////////////////////////////////
 /**
  * Define time for session active before deconnection
  */
 const SESSION_TIME_BEFORE_DECO = 300;
+
+/**
+ * Name of array used to $_SESSION
+ */
+const SESSION_ARRAY_USER_INFO = "user";
+
+
+
+///////////////////////////////////////////////////////////////////////////////////////////
+//*********************************  OTHERS CONSTANTS  **********************************//
+///////////////////////////////////////////////////////////////////////////////////////////
+/**
+ * Library version
+ */
+const VERSION_LIB = 001;
+/**
+ * Activate/Desactivate forcing browsers to connect with HTTPS protocol
+ */
+const FORCE_SSL = 0;
+
 
 /**
  * Class Library php
@@ -243,30 +291,34 @@ const SESSION_TIME_BEFORE_DECO = 300;
  * @version   Release: @package_version@
  * @link      http://pear.php.net/package/PackageName
  */
-class Library
+class userLibrary //a changer
 {
     public static $lastErrorCode;
     public static $lastErrorText;
+    private $userConnected = false;
 
     /**
      * Library constructor.
      */
     public function __construct()
     {
-        //Valide self::_log("Connexion", 1, 1);
-        //Valide self::_initPdo();
-        //self::_setBDD("INSERT INTO ".DATABASE_PREFIX."Registrations (`user`)
+        $this->userConnected = self::_isUserConnected();
+        self::_checkForm();
+        //exemple req self::_setBDD("INSERT INTO ".DATABASE_PREFIX."Registrations (`user`)
         // VALUES (?)", array('michel'));
+        //Valide self::_log("Connexion", 1, 1);
+        //self::_initPdo();
         //Valide self::_initTable($pdo);
         //valide self::_createPasswd("p?0Awetpwet?");
         //valide self::_checkUserID("jean?");
         //valide pour les 3 SGBD
-        //self::_createUser("jb", "pwert?0Ayuetpwet");
+        //self::_createUser("alfred", "qwertyuioP0?");
         //valide pour les 3 SGBD self::_updateRights(4, "jb");
         //valide echo self::_checkPasswordLifetime(time()-864000);
         //self::_updateActive();
         //valide self::_updateUserID("jb", "jf@gmail.fr");
         //valide self::_updatePassword("cquetuveux", "qwertyui11");
+
     }
 
 
@@ -321,7 +373,11 @@ class Library
             `version_lib` VARCHAR(50) NULL ,
             `ipv4` VARCHAR(15) NULL ,
             `ipv6` VARCHAR(36) NULL ,
-            `password_birth` INTEGER NOT NULL)
+            `password_birth` INTEGER NOT NULL ,
+            `delay_password` INTEGER NULL ,
+            `connection_date` INTEGER NULL ,
+            `password_error` INTEGER NULL , 
+            `token` VARCHAR(60) NULL)
             ENGINE = InnoDB "
             );
         } elseif (DATABASE_TYPE == 2) {
@@ -342,6 +398,10 @@ class Library
             "ipv4" character varying(15) COLLATE pg_catalog."default" NULL,
             "ipv6" character varying(36) COLLATE pg_catalog."default" NULL,
             "password_birth" integer NOT NULL,
+            "delay_password" integer NULL,
+            "connection_date" integer NULL,
+            "password_error" integer NULL, 
+            "token" character varying(60) COLLATE pg_catalog."default" NULL,
             CONSTRAINT '.DATABASE_PREFIX.'Registrations_pkey PRIMARY KEY ("id"))
             WITH (OIDS = FALSE)
             TABLESPACE pg_default;'
@@ -363,7 +423,11 @@ class Library
             "version_lib"	TEXT NULL,
             "ipv4"	TEXT NULL,
             "ipv6"	TEXT NULL,
-            "password_birth"	INTEGER NOT NULL );'
+            "password_birth"    INTEGER NOT NULL,
+            "delay_password"    INTEGER NULL,
+            "connection_date"   INTEGER NULL,
+            "password_error"    INTEGER NULL, 
+            "token" TEXT NULL );'
             );
         }
     }
@@ -411,9 +475,9 @@ class Library
     {
         $pdo = self::_initPdo();
         $get = $pdo->prepare($req);
-        var_dump($pdo->errorInfo());
+       // var_dump($pdo->errorInfo());
         $get->execute($param);
-        var_dump($pdo->errorInfo());
+        //var_dump($pdo->errorInfo());
         $res = $get->fetchAll();
         return $res;
     }
@@ -427,9 +491,9 @@ class Library
     {
         $pdo = self::_initPdo();
         $set = $pdo->prepare($req);
-        var_dump($pdo->errorInfo());
+        //var_dump($pdo->errorInfo());
         $set->execute($param);
-        var_dump($set->errorInfo());
+        //var_dump($set->errorInfo());
         //self::_log($error, 10, 1);
     }
 
@@ -767,8 +831,8 @@ class Library
     {
         session_start();
         // Do not allow to use too old session ID
-        if (!empty($_SESSION['deleted_time'])
-            && $_SESSION['deleted_time'] < time() - SESSION_TIME_BEFORE_DECO
+        if (!empty($_SESSION[SESSION_ARRAY_USER_INFO]['deleted_time'])
+            && $_SESSION[SESSION_ARRAY_USER_INFO]['deleted_time'] < time() - SESSION_TIME_BEFORE_DECO
         ) {
             session_destroy();
             session_start();
@@ -792,7 +856,7 @@ class Library
         $newid = session_create_id('myprefix-');
         // Set deleted timestamp.
         // Session data must not be deleted immediately for reasons.
-        $_SESSION['deleted_time'] = time();
+        $_SESSION[SESSION_ARRAY_USER_INFO]['deleted_time'] = time();
         // Finish session
         session_commit();
         // Make sure to accept user defined session ID
@@ -816,7 +880,137 @@ class Library
         session_destroy();
     }
 
+// penser a changer la valeur du strict-mode
+// ************ini_set('session.use_strict_mode', 1);***************
 
+
+    /**
+     *
+     */
+    private static function _checkForm(){
+        //var_dump($_POST);
+        if (isset($_POST) && isset($_POST['user_id']) && isset($_POST['password'])){
+            self::_connection($_POST['user_id'], $_POST['password']);
+        }
+        //si l'action est mot de passe perdu:
+            //self::_passwordForgeted();
+        //si l'action est changement de mot de passe:
+            //self::changePassword();
+    }
+
+    /**
+     * Check if an user is connected and have fill
+     * SESSION variable
+     *
+     * @return $res
+     */
+    //self::_validSession($_SESSION[SESSION_ARRAY_USER_INFO]
+    private static function _isUserConnected(){
+
+            if (isset($_SESSION)){
+                if (isset($_SESSION[SESSION_ARRAY_USER_INFO])
+                    && isset($_SESSION[SESSION_ARRAY_USER_INFO]['userID'])
+                    && isset($_SESSION[SESSION_ARRAY_USER_INFO]['ipv4'])
+                    && isset($_SESSION[SESSION_ARRAY_USER_INFO]['ipv6'])
+                    && isset($_SESSION[SESSION_ARRAY_USER_INFO]['rights'])
+                    && isset($_SESSION[SESSION_ARRAY_USER_INFO]['phoneNumber'])
+                    && isset($_SESSION[SESSION_ARRAY_USER_INFO]['userAgent'])
+                ){
+                   $data = self::_getBDD("SELECT token FROM ".DATABASE_PREFIX."registrations WHERE user_id = ?",
+                       array($_SESSION[SESSION_ARRAY_USER_INFO]['userID'])
+                    );
+                   var_dump($data);//tableau
+//                     if(password_verify($data[''], $_SESSION[SESSION_ARRAY_USER_INFO]['token'])){
+//
+//                     }
+                    $res = true;
+                }
+            } else {
+    //            self::_sessionRegenerateId();
+                $res = false;
+                }
+                return $res;
+    }
+
+
+
+    private static function _connection($user_id, $password)
+    {
+//       self::_sessionStart();
+        //recupere toute la ligne
+        $res = self::_getBDD("SELECT *
+        FROM " . DATABASE_PREFIX . "registrations 
+        WHERE user_id = ?",
+        array($user_id));
+
+        //verifie si l'element user_id n'est pas presents et != du parametre
+        if (!isset($res[0]['user_id']) || $res[0]['user_id'] != $user_id) {
+            self::_error(ERROR_CONNECTION);
+
+            //sinon si l'utilisateur n'est pas actif
+        } elseif ($res[0]['active'] == 0 ) {
+            self::_error(ERROR_USER_NOT_ACTIVE);
+
+            //sinon si le mot de passe ne correspond pas
+        } elseif (!password_verify($password, $res[0]['password'])) {
+
+            if ($res[0]['delay_password'] < time()){
+                // si la constante est != 0
+                if (PASSWORD_ATTEMPT_ERROR != 0) {
+                    $password_error = $res[0]['password_error'];
+                    $password_error++;
+                    ?> <br/><br/><?php
+                    //mise a jour du nombre de password_error
+                    self::_setBDD("UPDATE " . DATABASE_PREFIX . "registrations 
+                        SET password_error = ? 
+                        WHERE user_id = ?",
+                        array($password_error, $user_id)
+                    );
+                    self::_error(ERROR_CONNECTION);
+                    ?> <br/><br/><?php
+                    //si le nombre de password_error inferieur ou egal constante
+                    if ($password_error <= PASSWORD_ATTEMPT_ERROR) {
+                        echo "nombre de tentatives de connexion restantes : " . (PASSWORD_ATTEMPT_ERROR - $password_error);
+                        //sinon si nombre de password_error superieur constante
+                    } elseif ($password_error > PASSWORD_ATTEMPT_ERROR) {
+                        //declare un delai + la constante*60 (conversion en secondes)
+                        if (PASSWORD_DELAY_BEFORE_RETRY == 0){
+                            $delay = 0;
+                        } else {
+                            $delay = time() + (PASSWORD_DELAY_BEFORE_RETRY * 60);
+                        }
+
+                        //mise a zero du champ actif, du nombre de password_error et ajout du delai
+                        self::_setBDD("UPDATE " . DATABASE_PREFIX . "registrations
+                            SET active = ?, password_error = ?, delay_password = ?
+                            WHERE user_id = ?",
+                            array(0, 0, $delay, $user_id)
+                        );
+                        self::_error(ERROR_USER_NOT_ACTIVE);
+                    }
+                } else {
+                    self::_error(ERROR_CONNECTION);
+                }
+            } else {
+                echo "delai d'attente en cours";
+            }
+        } else {
+            $password_error = 0;
+            $data = session_id() . $user_id . $_SERVER['REMOTE_ADDR'] . $res[0]['rights'] . $res[0]['phone_number'] . $_SERVER['HTTP_USER_AGENT'];
+            $_SESSION[SESSION_ARRAY_USER_INFO]['token'] = password_hash($data, PASSWORD_BCRYPT);
+            self::_setBDD("UPDATE " . DATABASE_PREFIX . "resgistrations
+                   SET password_error = ?
+                   AND token = ?
+                   AND connection_date = ?
+                   WHERE user_id = ?",
+                array($password_error, $_SESSION[SESSION_ARRAY_USER_INFO]['token'], time(), $user_id)
+            );
+        }
+    }
+
+//faire fonction publique pour desactiver utilisateur qui mettra le champ reactivation_auto a 0
+//s'il est a 0, on ne le prend pas en compte
+//qui sera seulement disponible pour l'admin
 
     //    /**
     //     * Disable an user account
@@ -842,30 +1036,8 @@ class Library
     //    {
     //    }
     //
-    //    /**
-    //     * Session disconnect user
-    //     *
-    //     * @return true
-    //     */
-    //    private function _deconnection()
-    //    {
-    //        $time = AUTO_DISCONNECT;
-    //        session_destroy();
-    //        createLog();
-    //    }
-    //
-    //    /**
-    //     * Check old passwords if user is able to or unable to register with
-    //     *
-    //     * @return true
-    //     */
-    //    private function _connectOld()
-    //    {
-    //        read(){
-    //            create();
-    //        }
-    //        createLog();
-    //    }
+
+
     //
     //    /**
     //     * Disconnect user after few secondes
@@ -894,8 +1066,10 @@ class Library
 
 }
 
-$test = new Library();
-print_r($test::getLastError());
-//if($test::_getLastError()[0] == ERROR_PASSWORD_TOO_SHORT){
-//    ERROR_TEXT[ERROR_PASSWORD_TOO_SHORT];
-//}
+$user = new userLibrary();
+print_r(userLibrary::getLastError());
+
+
+//eviter les failles XSS:
+//$pseudo = htmlspecialchars($_POST['pseudo']);
+//echo "Bonjour ".$pseudo." !";
