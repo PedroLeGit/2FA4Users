@@ -122,7 +122,7 @@ const PASSWORD_MAX_REGISTER = 5;
 
 /**
  * Time on min when number of attempt have reach limit
- * 0 if admin have to reactivate itself on database desactivated users
+ * 0 (if admin have to reactivate itself on database desactivated users)
  * 1 (one minute)
  * 2 (two minutes)
  * ...
@@ -131,7 +131,7 @@ const PASSWORD_DELAY_BEFORE_RETRY = 1;
 
 /**
  * Number of attempt failed
- * 0(desactivate)
+ * 0(0)
  * 1(1)
  * 2(2)
  * ...
@@ -236,19 +236,19 @@ const ERROR_COUNTDOWN_PASSWORDS = 13;
 
 const ERROR_TEXT = array(
     "OK",
-    "Password trop court",
+    "Mot de passe trop court",
     "Mot de passe trop faible",
-    "Identifiant ne correspond pas au pattern",
-    "Cet utilisateur existe deja",
-    "La mise a jour de l'element a echouee",
-    "L'element actif ne prend que 0 ou 1",
+    "L'identifiant ne correspond pas au pattern",
+    "Cet utilisateur existe déjà",
+    "La mise a jour de l'élément a échouée",
+    "L'élément actif ne prend que 0 ou 1",
     "Cet utilisateur n'existe pas",
-    "Le nouvel identifiant est identique a l'ancien",
-    "Le mot de passe est un ancien mot de passe deja enregistre",
+    "Le nouvel identifiant est identique à l'ancien",
+    "Le mot de passe est un ancien mot de passe déjà enregistré",
     "Identifiant et/ou mot de passe incorrect",
-    "Utilisateur desactive",
-    "Compte desactive pour ".PASSWORD_DELAY_BEFORE_RETRY."min",
-    "Tentative(s) de connexion restante(s): ".PASSWORD_ATTEMPT_ERROR
+    "Utilisateur désactivé",
+    "Compte désactivé pour ".PASSWORD_DELAY_BEFORE_RETRY." min",
+    "Tentative(s) de connexion restante(s): "
 );
 
 
@@ -298,10 +298,11 @@ const LOGIN_PAGE = "/Librairie/login.php";
  */
 class userLibrary //a changer
 {
-    public static $lastErrorCode;
-    public static $lastErrorText;
+    private static $lastErrorCode;
+    private static $lastErrorText;
+    private static $lastErrorExtra;
     private $userConnected = false;
-    const DEBUG = 1;
+    const DEBUG = 0;
 
     /**
      * Library constructor.
@@ -340,11 +341,13 @@ class userLibrary //a changer
      *
      * @return void
      */
-    private static function _error($errorCode)
+    private static function _error($errorCode, $extraInfo="")
     {
         self::$lastErrorCode = $errorCode;
         self::$lastErrorText = ERROR_TEXT[$errorCode];
-        error_debug(self::$lastErrorText, self::$lastErrorCode);
+        self::$lastErrorExtra = $extraInfo;
+        $_SESSION[SESSION_ARRAY_USER_INFO]['errorCode'] = self::$lastErrorCode;
+        $_SESSION[SESSION_ARRAY_USER_INFO]['errorText'] = self::$lastErrorText.self::$lastErrorExtra;
     }
 
 
@@ -897,7 +900,7 @@ class userLibrary //a changer
      *
      * @return void
      */
-    private static function _destroySession()
+    public static function destroySession()
     {
         session_start();
         $_SESSION = array();
@@ -914,11 +917,13 @@ class userLibrary //a changer
         //var_dump($_POST);
         if (isset($_POST) && isset($_POST['user_id']) && isset($_POST['password'])){
             self::_connection($_POST['user_id'], $_POST['password']);
-        }
-        //si l'action est mot de passe perdu:
+        } elseif (isset($_GET['disconnect'])){
+            self::destroySession();
+        } elseif (isset($_GET['lost_password'])){
             //self::_passwordForgeted();
-        //si l'action est changement de mot de passe:
+        } elseif (isset($_GET['change_password'])){
             //self::changePassword();
+        }
     }
 
 
@@ -984,7 +989,12 @@ class userLibrary //a changer
         } elseif ($res[0]['active'] == 0
             && ($res[0]['delay_password'] > time()
                 || $res[0]['delay_password'] == 0)) {
+            if (PASSWORD_DELAY_BEFORE_RETRY == 0){
             self::_error(ERROR_USER_NOT_ACTIVE);
+            } else {
+            self::_error(ERROR_ACCOUNT_TEMPORARILY_DISABLED);
+            }
+
             //sinon si le mot de passe ne correspond pas
         } elseif (!password_verify($password, $res[0]['password'])) {
 
@@ -995,22 +1005,25 @@ class userLibrary //a changer
 
                     //mise a jour du nombre de password_error
                     self::_setBDD("UPDATE " . DATABASE_PREFIX . "registrations 
-                        SET password_error = ? 
+                        SET password_error = ?, 
+                        active = ?
                         WHERE user_id = ?",
-                        array($password_error, $user_id)
+                        array($password_error, 1,  $user_id)
                     );
                    self::_error(ERROR_CONNECTION);
 
                     //si le nombre de password_error inferieur ou egal constante
                     if ($password_error < PASSWORD_ATTEMPT_ERROR) {
-                        //a gerer avec la constante PASSWORD_ATTEMPT_ERROR-$password_error;
+                        self::_error(ERROR_COUNTDOWN_PASSWORDS, PASSWORD_ATTEMPT_ERROR-$password_error);
                         //sinon si nombre de password_error superieur constante
                     } elseif ($password_error >= PASSWORD_ATTEMPT_ERROR) {
                         //declare un delai + la constante*60 (conversion en secondes)
                         if (PASSWORD_DELAY_BEFORE_RETRY == 0) {
                             $delay = 0;
+                            self::_error(ERROR_USER_NOT_ACTIVE);
                         } else {
                             $delay = time() + (PASSWORD_DELAY_BEFORE_RETRY * 60);
+                            self::_error(ERROR_ACCOUNT_TEMPORARILY_DISABLED);
                         }
 
                         //mise a zero du champ actif, du nombre de password_error et ajout du delais
@@ -1019,11 +1032,6 @@ class userLibrary //a changer
                             WHERE user_id = ?",
                             array(0, 0, $delay, $user_id)
                         );
-                        if ($delay == 0) {
-                            self::_error(ERROR_USER_NOT_ACTIVE);
-                        } else {
-                            self::_error(ERROR_ACCOUNT_TEMPORARILY_DISABLED);
-                        }
                     }
                 } else {
                     //si la constante est a zero, on affiche juste un message pour signaler
@@ -1049,12 +1057,12 @@ class userLibrary //a changer
                     token = ?,
                     connection_date = ?,
                     delay_password = ?
-                   WHERE user_id = ?",
+                    WHERE user_id = ?",
                 array(0, $_SESSION[SESSION_ARRAY_USER_INFO]['token'], time(), 0, $user_id)
             );
 //            self::_sessionRegenerateId();
 
-          error_debug("DATE", date('d-m-Y', $_SESSION[SESSION_ARRAY_USER_INFO]['connection_date']));
+          error_debug("ERRORINFO", $_SESSION[SESSION_ARRAY_USER_INFO]['errorCode'].$_SESSION[SESSION_ARRAY_USER_INFO]['errorText']);
         }
     }
 
@@ -1106,6 +1114,7 @@ class userLibrary //a changer
         }
         return $res;
     }
+
 
     //    /**
     //     * Disable an user account
