@@ -1275,7 +1275,7 @@ class userLibrary //a changer
                 echo "\n";
                 var_dump($reg);
                 //parametres: (valeur de 'regReq', valeurs en chaine de register2)
-                //$reg = $u2f->doRegister(json_decode($_SESSION[SESSION_ARRAY_USER_INFO]['regReq']), json_decode($reg)); //est stocké dans $reg le resultat de la fonction doRegister presente dans U2F.php
+                //$reg = $u2f->doRegister(json_decode($_SESSION[SESSION_ARRAY_USER_INFO]['regReq']), json_decode($reg)); //est stocké dans $reg le resultat de la fonction doRegister presente dans U2F_olf.php
                 //ajoute un enregistrement
 //                self::_setBDD("UPDATE " . DATABASE_PREFIX . "registrations (keyHandle, publicKey, certificate, counter)
 //                    VALUES (?, ?, ?, ?), WHERE user_id = ?",
@@ -1352,7 +1352,7 @@ class userLibrary //a changer
 //
 //        if ($_POST['authenticate2']){
 //            //parametres: (valeur de 'authReq', clefs de l'utilisateur presentes en base , valeur en chaine de register2, )
-//            $reg = $u2f->doAuthenticate(json_decode($_SESSION['authReq']), $res[0]['id'], json_decode($_POST['authenticate2'])); //est stocké dans $reg le resultat de la fonction doAuthenticate presente dans U2F.php
+//            $reg = $u2f->doAuthenticate(json_decode($_SESSION['authReq']), $res[0]['id'], json_decode($_POST['authenticate2'])); //est stocké dans $reg le resultat de la fonction doAuthenticate presente dans U2F_olf.php
 //            //met a jour l'element $reg
 //            self::_setBDD("UPDATE " . DATABASE_PREFIX . "registrations
 //            SET counter = ?
