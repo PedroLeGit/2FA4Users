@@ -1,5 +1,5 @@
 <?php
-include "error_debug.php";
+
 /**
  * Created by PhpStorm.
  * User: Pedro
@@ -16,18 +16,19 @@ include "error_debug.php";
  * @link     http://pear.php.net/package/PackageName
  */
 
-//namespace u2fLibConnectedUser;//a changer
+//namespace Library2FA;
+use u2flib_server\U2F as U2F;
+include "error_debug.php";
 
 ////////////////////////////////////////////////////////////////////////////////////
 //****************************  DOUBLE AF CONSTANTS  *****************************//
 ////////////////////////////////////////////////////////////////////////////////////
 /**
  * Double authenticate way:
- * 0(none)
- * 1(SMS)
- * 2(Key U2f)
+ * 0 (none)
+ * 1 (SMS)/(U2F)
  */
-const DOUBLEFA = 0;
+const DOUBLEFA = 1;
 
 /**
  * Short message text for SMS authenticate
@@ -69,7 +70,7 @@ const ID_PATTERN = array(
 ////////////////////////////////////////////////////////////////////////////////////
 /**
  * Password lenght
- * 8(8 lettres)
+ * 8(8 letters)
  * 9(9 letters)
  * ...
  */
@@ -283,7 +284,14 @@ const FORCE_SSL = 0;
  * Login page
  */
 const LOGIN_PAGE = "/Librairie/login.php";
+/**
+ * Admin rights default number
+ */
+const ADMIN = 10000;
 
+if (DOUBLEFA >= 1){
+    require "U2F/U2F.php";
+}
 /**
  * Class Library php
  *
@@ -298,10 +306,12 @@ const LOGIN_PAGE = "/Librairie/login.php";
  */
 class userLibrary //a changer
 {
-    private static $lastErrorCode;
-    private static $lastErrorText;
+    private static $lastErrorCode = ERROR_OK;
+    private static $lastErrorText = ERROR_TEXT[ERROR_OK]; //Erreur generee par l'IDE
     private static $lastErrorExtra;
     private $userConnected = false;
+    private $user2FAConnected = false;
+    private static $currentUser = array();
     const DEBUG = 0;
 
     /**
@@ -313,23 +323,23 @@ class userLibrary //a changer
         self::_checkForm();
         $this->userConnected = self::_isUserConnected();
         var_dump(self::_isUserConnected());
-        self::_loginForm($this->userConnected);
+        $this->user2FAConnected = self::_isUser2FAConnected();
+        var_dump(self::_isUser2FAConnected());
 
-        //exemple req self::_setBDD("INSERT INTO ".DATABASE_PREFIX."Registrations (`user`)
-        // VALUES (?)", array('michel'));
         //Valide self::_log("Connexion", 1, 1);
         //self::_initPdo();
         //Valide self::_initTable($pdo);
         //valide self::_createPasswd("p?0Awetpwet?");
         //valide self::_checkUserID("jean?");
         //valide pour les 3 SGBD
-        //self::_createUser("alfred", "qwertyuioP0?");
+        //self::_createUser("alfred", "qwertyuioP0?", 1);
+        //self::_createUser("admin", "asdfghjkL;0", ADMIN);
         //valide pour les 3 SGBD self::_updateRights(4, "jb");
         //valide echo self::_checkPasswordLifetime(time()-864000);
         //self::_updateActive();
         //valide self::_updateUserID("jb", "jf@gmail.fr");
         //valide self::_updatePassword("cquetuveux", "qwertyui11");
-
+        self::_loginForm($this->userConnected, $this->user2FAConnected);
     }
 
 
@@ -341,13 +351,13 @@ class userLibrary //a changer
      *
      * @return void
      */
-    private static function _error($errorCode, $extraInfo="")
+    private static function _error($errorCode, $extraInfo = "")
     {
         self::$lastErrorCode = $errorCode;
         self::$lastErrorText = ERROR_TEXT[$errorCode];
         self::$lastErrorExtra = $extraInfo;
         $_SESSION[SESSION_ARRAY_USER_INFO]['errorCode'] = self::$lastErrorCode;
-        $_SESSION[SESSION_ARRAY_USER_INFO]['errorText'] = self::$lastErrorText.self::$lastErrorExtra;
+        $_SESSION[SESSION_ARRAY_USER_INFO]['errorText'] = self::$lastErrorText . self::$lastErrorExtra;
     }
 
 
@@ -372,8 +382,8 @@ class userLibrary //a changer
     private static function _initTable($pdo)
     {
         if (DATABASE_TYPE == 1) {
-            $res = $pdo->exec(
-                "CREATE TABLE if not exists `".DATABASE_PREFIX."registrations`( 
+            $pdo->exec(
+                "CREATE TABLE if not exists `" . DATABASE_PREFIX . "registrations`( 
             `id` SERIAL NOT NULL AUTO_INCREMENT ,
             `user_id` VARCHAR(50) NOT NULL ,  
             `password` VARCHAR(60) NOT NULL ,
@@ -392,12 +402,14 @@ class userLibrary //a changer
             `delay_password` INTEGER NULL ,
             `connection_date` INTEGER NULL ,
             `password_error` INTEGER NULL , 
-            `token` VARCHAR(60) NULL)
+            `token` VARCHAR(60) NULL ,
+            `tokenSMS` VARCHAR(60) NULL ,
+            `tokenKEY` VARCHAR(60) NULL)
             ENGINE = InnoDB "
             );
         } elseif (DATABASE_TYPE == 2) {
             $pdo->exec(
-                'CREATE TABLE if not exists '.DATABASE_PREFIX.'registrations (
+                'CREATE TABLE if not exists ' . DATABASE_PREFIX . 'registrations (
             "id" SERIAL,
             "user_id" character varying(50) COLLATE pg_catalog."default" NOT NULL,
             "password" character varying(60) COLLATE pg_catalog."default" NOT NULL,
@@ -417,13 +429,15 @@ class userLibrary //a changer
             "connection_date" integer NULL,
             "password_error" integer NULL, 
             "token" character varying(60) COLLATE pg_catalog."default" NULL,
-            CONSTRAINT '.DATABASE_PREFIX.'Registrations_pkey PRIMARY KEY ("id"))
+            "tokenSMS" character varying(60) COLLATE pg_catalog."default" NULL,
+            "tokenKEY" character varying(60) COLLATE pg_catalog."default" NULL,
+            CONSTRAINT ' . DATABASE_PREFIX . 'Registrations_pkey PRIMARY KEY ("id"))
             WITH (OIDS = FALSE)
             TABLESPACE pg_default;'
             );
         } elseif (DATABASE_TYPE == 3) {
             $pdo->exec(
-                'CREATE TABLE if not exists '.DATABASE_PREFIX.'registrations (
+                'CREATE TABLE if not exists ' . DATABASE_PREFIX . 'registrations (
             "id"	INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
             "user_id"	TEXT NOT NULL,
             "password"	TEXT NOT NULL,
@@ -442,7 +456,9 @@ class userLibrary //a changer
             "delay_password"    INTEGER NULL,
             "connection_date"   INTEGER NULL,
             "password_error"    INTEGER NULL, 
-            "token" TEXT NULL );'
+            "token" TEXT NULL,
+            "tokenSMS" TEXT NULL,
+            "tokenKEY" TEXT NULL);'
             );
         }
     }
@@ -457,8 +473,8 @@ class userLibrary //a changer
     {
         if (DATABASE_TYPE == 1) {
             $pdo = new PDO(
-                'mysql:host=' . DATABASE_HOST.
-                    ';dbname='.DATABASE_NAME,
+                'mysql:host=' . DATABASE_HOST .
+                ';dbname=' . DATABASE_NAME,
                 DATABASE_USER,
                 DATABASE_PASSWORD
             );
@@ -482,8 +498,8 @@ class userLibrary //a changer
     /**
      * Request to get elements on database
      *
-     * @param string $req   request
-     * @param mixed  $param is the element to read on database
+     * @param string $req request
+     * @param mixed $param is the element to read on database
      *
      * @return $res
      */
@@ -491,11 +507,11 @@ class userLibrary //a changer
     {
         $pdo = self::_initPdo();
         $get = $pdo->prepare($req);
-        if(self::DEBUG == 1)
-        var_dump($pdo->errorInfo());
+        if (self::DEBUG == 1)
+            var_dump($pdo->errorInfo());
         $get->execute($param);
-        if(self::DEBUG == 1)
-        var_dump($pdo->errorInfo());
+        if (self::DEBUG == 1)
+            var_dump($pdo->errorInfo());
         $res = $get->fetchAll();
         return $res;
     }
@@ -504,18 +520,18 @@ class userLibrary //a changer
     /**
      * Request to set elements on database
      *
-     * @param string $req   request
-     * @param array  $param is the element to add on database
+     * @param string $req request
+     * @param array $param is the element to add on database
      */
     private static function _setBDD($req, $param)
     {
         $pdo = self::_initPdo();
         $set = $pdo->prepare($req);
-        if(self::DEBUG == 1)
-        var_dump($pdo->errorInfo());
+        if (self::DEBUG == 1)
+            var_dump($pdo->errorInfo());
         $set->execute($param);
-        if(self::DEBUG == 1)
-        var_dump($set->errorInfo());
+        if (self::DEBUG == 1)
+            var_dump($set->errorInfo());
         //self::_log($error, 10, 1);
     }
 
@@ -524,21 +540,21 @@ class userLibrary //a changer
      * Register log on defined file with LOG_PATH
      * create a new log file each day
      *
-     * @param string $action  describe the log
-     * @param int    $level   level of numbers of enabled logs
-     * @param int    $user_id used to find who created the log
+     * @param string $action describe the log
+     * @param int $level level of numbers of enabled logs
+     * @param int $user_id used to find who created the log
      */
     private static function _log($action, $level, $user_id = null)
     {
         if (LOG > 0 && LOG >= $level) {
-            $file = LOG_PATH . 'log-'.date('Y-m-d').'.txt';
+            $file = LOG_PATH . 'log-' . date('Y-m-d') . '.txt';
             if (!file_exists($file)) {
                 $text = " Date ; User id ; Action \n";
                 file_put_contents($file, $text, FILE_APPEND | LOCK_EX);
             }
             $date = date('d/m/Y H:i:s');
             //CSV format
-            $text = $date.';'.$user_id.';'.$action."\n";
+            $text = $date . ';' . $user_id . ';' . $action . "\n";
             file_put_contents($file, $text, FILE_APPEND | LOCK_EX);
         }
     }
@@ -554,7 +570,7 @@ class userLibrary //a changer
         $password = false;
         $strength = PASSWORD_STRENGTH;
         if ($strength > count(PASSWORD_PATTERN)) {
-            $strength = count(PASSWORD_PATTERN)-1;
+            $strength = count(PASSWORD_PATTERN) - 1;
         }
         if (!preg_match(PASSWORD_PATTERN[$strength], $pass)) {
             if (PASSWORD_LENGHT > strlen($pass)) {
@@ -622,18 +638,18 @@ class userLibrary //a changer
     /**
      * Create an user and add a log
      *
-     * @param mixed  $user
-     * @param mixed  $pass
-     * @param int    $rights
+     * @param mixed $user
+     * @param mixed $pass
+     * @param int $rights
      * @param string $phone
      *
      * @return
      */
-    private static function _createUser($user, $pass, $rights=0, $phone=null)
+    private static function _createUser($user, $pass, $rights = 1, $phone = null)
     {
         $pdo = self::_initPdo();
         $result = self::_getBDD(
-            "SELECT user_id FROM ".DATABASE_PREFIX."registrations 
+            "SELECT user_id FROM " . DATABASE_PREFIX . "registrations 
             WHERE user_id = ?",
             array($user)
         );
@@ -641,7 +657,7 @@ class userLibrary //a changer
             if (self::_checkUserID($user)) {
                 $password = self::_validPasswd($pass);
                 self::_setBDD(
-                    "INSERT INTO ".DATABASE_PREFIX."registrations 
+                    "INSERT INTO " . DATABASE_PREFIX . "registrations 
                     (user_id, password, rights, active, password_birth)
                     VALUES (?, ?, ?, ?, ?)",
                     array($user, $password, $rights, 1, time())
@@ -668,7 +684,7 @@ class userLibrary //a changer
      */
     private static function _checkPasswordLifetime($passwordBirthday)
     {
-        if (($passwordBirthday + (PASSWORD_LIFE*86400)) < time()) {
+        if (($passwordBirthday + (PASSWORD_LIFE * 86400)) < time()) {
             $res = 0;
         } else {
             $res = 1;
@@ -680,15 +696,15 @@ class userLibrary //a changer
     /**
      * Update rights on database
      *
-     * @param int   $rights is the element to update on database
-     * @param mixed $user   is the ID of user for WHERE condition
+     * @param int $rights is the element to update on database
+     * @param mixed $user is the ID of user for WHERE condition
      *
      * @return void
      */
     private static function _updateRights($rights, $user)
     {
         if (self::_updateBDD(
-            "UPDATE ".DATABASE_PREFIX."
+            "UPDATE " . DATABASE_PREFIX . "
             registrations SET rights = ? WHERE user_id = ?",
             array($rights, $user))) {
             self::_error(ERROR_OK);
@@ -701,8 +717,8 @@ class userLibrary //a changer
     /**
      * Update active on database
      *
-     * @param int   $active is the element to update on database
-     * @param mixed $user   is the ID of user for WHERE condition
+     * @param int $active is the element to update on database
+     * @param mixed $user is the ID of user for WHERE condition
      *
      * @return void
      */
@@ -710,14 +726,14 @@ class userLibrary //a changer
     {
         if ($active == 0 || $active == 1) {
             if (self::_updateBDD(
-                "UPDATE ".DATABASE_PREFIX."
+                "UPDATE " . DATABASE_PREFIX . "
                 registrations SET active = ? WHERE user_id = ?",
                 array($active, $user))) {
                 self::_error(ERROR_OK);
-            }else{
+            } else {
                 self::_error(ERROR_UPDATE_FAILED);
             }
-        }else{
+        } else {
             self::_error(ERROR_ACTIVE);
         }
     }
@@ -735,7 +751,7 @@ class userLibrary //a changer
     {
         if ($newUser != $oldUser) {
             $result = self::_getBDD(
-                "SELECT user_id FROM ".DATABASE_PREFIX."registrations 
+                "SELECT user_id FROM " . DATABASE_PREFIX . "registrations 
             WHERE user_id = ? OR user_id = ?", array($oldUser, $newUser)
             );
             //var_dump($result);
@@ -777,7 +793,7 @@ class userLibrary //a changer
      * and store on database old passwords
      * If PASSWORD_REGISTER is ON, user won't be able to
      * register an old password
-     * 
+     *
      * @param mixed $user_id
      * @param mixed $newPassword
      *
@@ -793,8 +809,8 @@ class userLibrary //a changer
         //var_dump($result[0]['old_password']);
         //var$result[0]['old_password'];
         if (isset($result[0]['old_password'])
-                || (isset($result[0])
-            && is_null($result[0]['old_password']))
+            || (isset($result[0])
+                && is_null($result[0]['old_password']))
         ) {
 
             $arrayPassword = json_decode($result[0]['old_password'], true);
@@ -833,7 +849,7 @@ class userLibrary //a changer
                     }
 
                     $result = self::_setBDD(
-                        "UPDATE ".DATABASE_PREFIX."registrations 
+                        "UPDATE " . DATABASE_PREFIX . "registrations 
                         SET old_password = ?, password = ? WHERE user_id = ?",
                         array(json_encode($arrayPassword), $newPasswordHash, $user_id)
                     );
@@ -851,9 +867,11 @@ class userLibrary //a changer
      *
      * @return void
      */
-    private static function _sessionStart() 
+    private static function _sessionStart()
     {
         session_start();
+        $_SESSION[SESSION_ARRAY_USER_INFO]['errorCode'] = ERROR_OK;
+        $_SESSION[SESSION_ARRAY_USER_INFO]['errorText'] = ERROR_TEXT[ERROR_OK];
         // Do not allow to use too old session ID
         if (!empty($_SESSION[SESSION_ARRAY_USER_INFO]['deleted_time'])
             && $_SESSION[SESSION_ARRAY_USER_INFO]['deleted_time'] < time() - SESSION_TIME_BEFORE_DECO
@@ -905,7 +923,19 @@ class userLibrary //a changer
         session_start();
         $_SESSION = array();
         session_destroy();
-        header("Location: ".LOGIN_PAGE);
+    }
+
+
+    /**
+     *
+     */
+    private static function changePassword()
+    {
+        if (isset($_GET['password_forgotten'])){
+            header("Location: " . LOGIN_PAGE . "?password_forgotten");
+        } elseif (isset($_GET['change_password'])){
+            header("Location: " . LOGIN_PAGE . "?change_password");
+        }
     }
 
 
@@ -915,14 +945,18 @@ class userLibrary //a changer
     private static function _checkForm()
     {
         //var_dump($_POST);
-        if (isset($_POST) && isset($_POST['user_id']) && isset($_POST['password'])){
+        if (isset($_POST) && isset($_POST['user_id']) && isset($_POST['password'])) {
             self::_connection($_POST['user_id'], $_POST['password']);
-        } elseif (isset($_GET['disconnect'])){
+        } elseif (isset($_GET['disconnect'])) {
             self::destroySession();
-        } elseif (isset($_GET['lost_password'])){
-            //self::_passwordForgeted();
-        } elseif (isset($_GET['change_password'])){
-            //self::changePassword();
+        } elseif (isset($_GET['lost_password'])) {
+            self::_passwordForgotten();
+        } elseif (isset($_GET['change_password'])) {
+            self::changePassword();
+        }
+        if (isset($_POST['ajax'])){
+            $reg = $_POST['reg'];
+            self::_addRegister($reg);
         }
     }
 
@@ -937,7 +971,7 @@ class userLibrary //a changer
     private static function _isUserConnected()
     {
         $res = false;
-        if (isset($_SESSION)){
+        if (isset($_SESSION)) {
             //var_dump($_SESSION);
             if (isset($_SESSION[SESSION_ARRAY_USER_INFO])
                 && isset($_SESSION[SESSION_ARRAY_USER_INFO]['session_id'])
@@ -945,23 +979,85 @@ class userLibrary //a changer
                 && isset($_SESSION[SESSION_ARRAY_USER_INFO]['ipv4'])
                 && isset($_SESSION[SESSION_ARRAY_USER_INFO]['rights'])
                 && isset($_SESSION[SESSION_ARRAY_USER_INFO]['user_agent'])
-            ){
-               $token = session_id().$_SESSION[SESSION_ARRAY_USER_INFO]['user_id'].$_SERVER['REMOTE_ADDR'].$_SESSION[SESSION_ARRAY_USER_INFO]['rights'].$_SERVER['HTTP_USER_AGENT'];
+            ) {
+                $token = session_id() . $_SESSION[SESSION_ARRAY_USER_INFO]['user_id'] . $_SERVER['REMOTE_ADDR'] . $_SESSION[SESSION_ARRAY_USER_INFO]['rights'] . $_SERVER['HTTP_USER_AGENT'];
                 //var_dump($token);
 
-               $data = self::_getBDD("SELECT * FROM ".DATABASE_PREFIX."registrations
+                $data = self::_getBDD("SELECT * FROM " . DATABASE_PREFIX . "registrations
                 WHERE user_id = ?",
-                   array($_SESSION[SESSION_ARRAY_USER_INFO]['user_id'])
+                    array($_SESSION[SESSION_ARRAY_USER_INFO]['user_id'])
                 );
                 //var_dump($data);
 
-                if (password_verify($token, $data[0]['token'])){
+
+                if (password_verify($token, $data[0]['token'])) {
                     //echo "comparaison OK";
+                    self::$currentUser = $data[0];
                     $res = true;
                 }
             }
         }
-            return $res;
+        return $res;
+    }
+
+
+    /**
+     * @return bool
+     */
+    public function readUserConnected()
+    {
+        return ($this->userConnected);
+    }
+
+
+    /**
+     * @return bool
+     */
+    public function readUser2FAConnected()
+    {
+        return $this->user2FAConnected;
+    }
+
+
+    /**
+     * Check if user is connected with 2FA system
+     * or not
+     */
+    private static function _isUser2FAConnected()
+    {
+        $res = false;
+        $data = self::_getBDD("SELECT * FROM " . DATABASE_PREFIX . "registrations
+                    WHERE user_id = ?",
+            array($_SESSION[SESSION_ARRAY_USER_INFO]['user_id']));
+        //var_dump($data);
+        if (DOUBLEFA == 0) {
+            $res = true;
+        } else { //procedure verif token sms && U2F
+            if (isset($_SESSION)) {
+                //var_dump($_SESSION);
+                if (isset($_SESSION[SESSION_ARRAY_USER_INFO])
+                    && isset($_SESSION[SESSION_ARRAY_USER_INFO]['user_id'])
+                    && isset($_SESSION[SESSION_ARRAY_USER_INFO]['phone_number'])
+                    && isset($_SESSION[SESSION_ARRAY_USER_INFO]['random_number'])) {
+                    $token = $_SESSION[SESSION_ARRAY_USER_INFO]['user_id'] . $_SESSION[SESSION_ARRAY_USER_INFO]['phone_number'] . $_SESSION[SESSION_ARRAY_USER_INFO]['random_number'];
+                    //var_dump($token);
+                    if (password_verify($token, $data[0]['tokenSMS'])) {
+                        $res = true;
+                    }
+                } elseif (isset($_SESSION[SESSION_ARRAY_USER_INFO])
+                    && isset($_SESSION[SESSION_ARRAY_USER_INFO]['user_id'])
+                    && isset($_SESSION[SESSION_ARRAY_USER_INFO]['u2f_key_handle'])
+                    && isset($_SESSION[SESSION_ARRAY_USER_INFO]['u2f_public_key'])
+                    && isset($_SESSION[SESSION_ARRAY_USER_INFO]['u2f_certificate'])) {
+                    $token = $_SESSION[SESSION_ARRAY_USER_INFO]['user_id'] . $_SESSION[SESSION_ARRAY_USER_INFO]['u2f_key_handle'] . $_SESSION[SESSION_ARRAY_USER_INFO]['u2f_public_key'] . $_SESSION[SESSION_ARRAY_USER_INFO]['u2f_certificate'];
+                    //var_dump($token);
+                    if (password_verify($token, $data[0]['tokenU2F'])) {
+                        $res = true;
+                    }
+                }
+            }
+        }
+        return $res;
     }
 
 
@@ -979,7 +1075,7 @@ class userLibrary //a changer
         $res = self::_getBDD("SELECT *
         FROM " . DATABASE_PREFIX . "registrations 
         WHERE user_id = ?",
-        array($user_id));
+            array($user_id));
 
         //verifie si l'element user_id n'est pas presents et != du parametre
         if (!isset($res[0]['user_id']) || $res[0]['user_id'] != $user_id) {
@@ -989,64 +1085,66 @@ class userLibrary //a changer
         } elseif ($res[0]['active'] == 0
             && ($res[0]['delay_password'] > time()
                 || $res[0]['delay_password'] == 0)) {
-            if (PASSWORD_DELAY_BEFORE_RETRY == 0){
-            self::_error(ERROR_USER_NOT_ACTIVE);
+            if (PASSWORD_DELAY_BEFORE_RETRY == 0) {
+                self::_error(ERROR_USER_NOT_ACTIVE);
             } else {
-            self::_error(ERROR_ACCOUNT_TEMPORARILY_DISABLED);
+                self::_error(ERROR_ACCOUNT_TEMPORARILY_DISABLED);
             }
 
             //sinon si le mot de passe ne correspond pas
         } elseif (!password_verify($password, $res[0]['password'])) {
 
-                // si la constante est != 0
-                if (PASSWORD_ATTEMPT_ERROR != 0) {
-                    $password_error = $res[0]['password_error'];
-                    $password_error++;
+            // si la constante est != 0
+            if (PASSWORD_ATTEMPT_ERROR != 0) {
+                $password_error = $res[0]['password_error'];
+                $password_error++;
 
-                    //mise a jour du nombre de password_error
-                    self::_setBDD("UPDATE " . DATABASE_PREFIX . "registrations 
+                //mise a jour du nombre de password_error
+                self::_setBDD("UPDATE " . DATABASE_PREFIX . "registrations 
                         SET password_error = ?, 
                         active = ?
                         WHERE user_id = ?",
-                        array($password_error, 1,  $user_id)
-                    );
-                   self::_error(ERROR_CONNECTION);
+                    array($password_error, 1, $user_id)
+                );
+                self::_error(ERROR_CONNECTION);
 
-                    //si le nombre de password_error inferieur ou egal constante
-                    if ($password_error < PASSWORD_ATTEMPT_ERROR) {
-                        self::_error(ERROR_COUNTDOWN_PASSWORDS, PASSWORD_ATTEMPT_ERROR-$password_error);
-                        //sinon si nombre de password_error superieur constante
-                    } elseif ($password_error >= PASSWORD_ATTEMPT_ERROR) {
-                        //declare un delai + la constante*60 (conversion en secondes)
-                        if (PASSWORD_DELAY_BEFORE_RETRY == 0) {
-                            $delay = 0;
-                            self::_error(ERROR_USER_NOT_ACTIVE);
-                        } else {
-                            $delay = time() + (PASSWORD_DELAY_BEFORE_RETRY * 60);
-                            self::_error(ERROR_ACCOUNT_TEMPORARILY_DISABLED);
-                        }
+                //si le nombre de password_error inferieur ou egal constante
+                if ($password_error < PASSWORD_ATTEMPT_ERROR) {
+                    self::_error(ERROR_COUNTDOWN_PASSWORDS, PASSWORD_ATTEMPT_ERROR - $password_error);
+                    //sinon si nombre de password_error superieur constante
+                } elseif ($password_error >= PASSWORD_ATTEMPT_ERROR) {
+                    //declare un delai + la constante*60 (conversion en secondes)
+                    if (PASSWORD_DELAY_BEFORE_RETRY == 0) {
+                        $delay = 0;
+                        self::_error(ERROR_USER_NOT_ACTIVE);
+                    } else {
+                        $delay = time() + (PASSWORD_DELAY_BEFORE_RETRY * 60);
+                        self::_error(ERROR_ACCOUNT_TEMPORARILY_DISABLED);
+                    }
 
-                        //mise a zero du champ actif, du nombre de password_error et ajout du delais
-                        self::_setBDD("UPDATE " . DATABASE_PREFIX . "registrations
+                    //mise a zero du champ actif, du nombre de password_error et ajout du delais
+                    self::_setBDD("UPDATE " . DATABASE_PREFIX . "registrations
                             SET active = ?, password_error = ?, delay_password = ?
                             WHERE user_id = ?",
-                            array(0, 0, $delay, $user_id)
-                        );
-                    }
-                } else {
-                    //si la constante est a zero, on affiche juste un message pour signaler
-                    //une erreur de connexion.
-                    self::_error(ERROR_CONNECTION);
+                        array(0, 0, $delay, $user_id)
+                    );
                 }
+            } else {
+                //si la constante est a zero, on affiche juste un message pour signaler
+                //une erreur de connexion.
+                self::_error(ERROR_CONNECTION);
+            }
         } else {
-            //redirection autre page
             $data = session_id() . $user_id . $_SERVER['REMOTE_ADDR'] . $res[0]['rights'] . $_SERVER['HTTP_USER_AGENT'];
-
+            self::$currentUser = $res[0];
             $_SESSION[SESSION_ARRAY_USER_INFO]['session_id'] = session_id();
             $_SESSION[SESSION_ARRAY_USER_INFO]['user_id'] = $user_id;
             $_SESSION[SESSION_ARRAY_USER_INFO]['ipv4'] = $_SERVER['REMOTE_ADDR'];
             $_SESSION[SESSION_ARRAY_USER_INFO]['rights'] = $res[0]['rights'];
             $_SESSION[SESSION_ARRAY_USER_INFO]['user_agent'] = $_SERVER['HTTP_USER_AGENT'];
+            $_SESSION[SESSION_ARRAY_USER_INFO]['u2f_key+handle'] = $res[0]['u2f_key_handle'];
+            $_SESSION[SESSION_ARRAY_USER_INFO]['id'] = self::$currentUser['id'];
+
 
             $_SESSION[SESSION_ARRAY_USER_INFO]['token'] = password_hash($data, PASSWORD_BCRYPT);
 
@@ -1062,9 +1160,44 @@ class userLibrary //a changer
             );
 //            self::_sessionRegenerateId();
 
-          error_debug("ERRORINFO", $_SESSION[SESSION_ARRAY_USER_INFO]['errorCode'].$_SESSION[SESSION_ARRAY_USER_INFO]['errorText']);
+            error_debug("ERRORINFO", $_SESSION[SESSION_ARRAY_USER_INFO]['errorCode'] . $_SESSION[SESSION_ARRAY_USER_INFO]['errorText']);
         }
     }
+
+
+    /**
+     *
+     */
+//    private static function _connection2FA($user_id)
+//    {
+//        $dataSMS = $user_id . phone_number...
+//
+//        $_SESSION[SESSION_ARRAY_USER_INFO]['user_id'] = $user_id;
+//        $_SESSION[SESSION_ARRAY_USER_INFO]['phone_number'] = ;
+//        $_SESSION[SESSION_ARRAY_USER_INFO]['random_number'] = ;
+//
+//        $_SESSION[SESSION_ARRAY_USER_INFO]['tokenKEY'] = password_hash($dataSMS, PASSWORD_BCRYPT);
+//
+//        $dataKEY = $user_id . u2f_key_handle . ...;
+//
+//        $_SESSION[SESSION_ARRAY_USER_INFO]['user_id'] = $user_id;
+//        $_SESSION[SESSION_ARRAY_USER_INFO]['u2f_key_handle'] = ;
+//        $_SESSION[SESSION_ARRAY_USER_INFO]['u2f_public_key'] = ;
+//        $_SESSION[SESSION_ARRAY_USER_INFO]['u2f_certificate'] = ;
+//
+//        $_SESSION[SESSION_ARRAY_USER_INFO]['tokenKEY'] = password_hash($dataKEY, PASSWORD_BCRYPT);
+//
+//
+//        self::_setBDD("UPDATE " . DATABASE_PREFIX . "registrations
+//                   SET tokenKEY = ?,
+//                    tokenSMS = ?
+//                    WHERE user_id = ?",
+//            array($user_id)
+//        );
+////            self::_sessionRegenerateId();
+//
+//        error_debug("ERRORINFO", $_SESSION[SESSION_ARRAY_USER_INFO]['errorCode'] . $_SESSION[SESSION_ARRAY_USER_INFO]['errorText']);
+//    }
 
 
     /**
@@ -1073,8 +1206,9 @@ class userLibrary //a changer
      *
      * @param $user_id
      */
-    public function disableUser($user_id){
-        self::_setBDD("UPDATE ".DATABASE_PREFIX."registrations 
+    public function disableUser($user_id)
+    {
+        self::_setBDD("UPDATE " . DATABASE_PREFIX . "registrations 
         SET delay_password = ?,
         active = ?
         WHERE user_id = ?",
@@ -1086,18 +1220,96 @@ class userLibrary //a changer
     /**
      *
      */
+    public static function _readU2FRegisterParam(){
+        echo '<script>';
+        echo 'var req = '.$_SESSION[SESSION_ARRAY_USER_INFO]['regReq'].';'; //prepare une variable JS de $req en cdc
+        echo 'var sigs = '.$_SESSION[SESSION_ARRAY_USER_INFO]['sigs'].';'; //prepare une variable JS de $sigs en cdc
+        echo 'var username = '.json_encode($_SESSION[SESSION_ARRAY_USER_INFO]['user_id']).';';
+        echo 'setTimeout(function (){u2fRegisterKey();}, 1000); ';
+        echo '</script>';
+    }
+
+
+    /**
+     * @param $user_id
+     */
+    public static function _initKey(){
+        $scheme = isset($_SERVER['HTTPS']) ? "https://" : "http://";
+        $u2f = new U2F($scheme . $_SERVER['HTTP_HOST']);
+        try {
+            //Cree challenge et recupere authentification (s'il y a) en fonction
+            //des clefs presentes en base
+            //$user = array();
+            //$user[] = (object) self::$currentUser;
+            $data = $u2f->getRegisterData();
+//            var_dump($data);
+//            exit();
+            //$data = $u2f->getRegisterData(self::$currentUser);
+            list($req, $sigs) = $data;
+            //Formate les elements en json pour un traitement en JS
+            $_SESSION[SESSION_ARRAY_USER_INFO]['regReq'] = json_encode($req);
+            $_SESSION[SESSION_ARRAY_USER_INFO]['req'] = json_encode($req);
+            $_SESSION[SESSION_ARRAY_USER_INFO]['sigs'] = json_encode($sigs);
+            $_SESSION[SESSION_ARRAY_USER_INFO]['id'] = json_encode(self::$currentUser['id']);
+            //echo "var username = '" . $user_id . "';";
+        } catch (Exception $e) {
+            //ne sera pas affiche en cas d'erreur a cause du header _loginForm
+            echo "alert('error');";
+            echo $e;
+        }
+    }
+
+
+    /**
+     *
+     */
+    private static function _addRegister($reg)
+    {
+        echo "ADDREGISTER";
+        echo "\n";
+        $scheme = isset($_SERVER['HTTPS']) ? "https://" : "http://";
+        $u2f = new U2F($scheme . $_SERVER['HTTP_HOST']);
+            if (isset($_SESSION[SESSION_ARRAY_USER_INFO]['regReq'])){
+                echo "reqReg present";
+                var_dump($_SESSION[SESSION_ARRAY_USER_INFO]['regReq']);
+                echo "\n";
+                var_dump($reg);
+                //parametres: (valeur de 'regReq', valeurs en chaine de register2)
+                //$reg = $u2f->doRegister(json_decode($_SESSION[SESSION_ARRAY_USER_INFO]['regReq']), json_decode($reg)); //est stocké dans $reg le resultat de la fonction doRegister presente dans U2F.php
+                //ajoute un enregistrement
+//                self::_setBDD("UPDATE " . DATABASE_PREFIX . "registrations (keyHandle, publicKey, certificate, counter)
+//                    VALUES (?, ?, ?, ?), WHERE user_id = ?",
+//                    array($_SESSION[SESSION_ARRAY_USER_INFO]['user_id'], $reg->keyHandle, $reg->publicKey, $reg->certificate, $reg->counter)
+//                );
+                echo "alert('success');";
+            } else {
+                $_SESSION['regReq'] = null; //la valeur regReq devient nulle
+            }
+
+    }
+
+
+    /**
+     *
+     */
     //si pas sur page login.php et pas d'utlisateur connecte
     // renvoit sur la page de login
     // ET ensuite renvoit sur la page courante
-    private static function _loginForm($userConnected){
-        //echo $_SERVER['PHP_SELF'];
-        //echo $userConnected;
+    private static function _loginForm($userConnected, $user2FAConnected)
+    {
+        self::_isAjax();
         if ($_SERVER['PHP_SELF'] != LOGIN_PAGE
-            && !$userConnected){
-            header("Location: ".LOGIN_PAGE."?redirect=".urlencode($_SERVER['PHP_SELF']));
+            && !$userConnected
+        && !$user2FAConnected
+        ) {
+            header("Location: " . LOGIN_PAGE . "?redirect=" . urlencode($_SERVER['PHP_SELF']));
             exit();
+        } elseif ($_SERVER['PHP_SELF'] != LOGIN_PAGE
+            && $userConnected
+            && !$user2FAConnected){
+            self::_initKey();
+            header("Location: " . LOGIN_PAGE);
         }
-
     }
 
 
@@ -1106,8 +1318,9 @@ class userLibrary //a changer
      *
      * @return string
      */
-    public static function getRedirectPage(){
-        if(isset($_GET['redirect'])){
+    public static function _getRedirectPage()
+    {
+        if (isset($_GET['redirect'])) {
             $res = urldecode($_GET['redirect']);
         } else {
             $res = "index.php";
@@ -1116,18 +1329,44 @@ class userLibrary //a changer
     }
 
 
-    //    /**
-    //     * Disable an user account
-    //     *
-    //     * @param int $user_id is the element to disable on database
-    //     *
-    //     * @return true
-    //     */
-    //    private function _disable($user_id)
-    //    {
-    //        createLog(){}
-    //    }
-    //
+    /**
+     *
+     */
+    private static function _isAjax(){
+       // var_dump($_POST);
+        if (isset ($_POST['ajax'])){
+            echo json_encode(self::getLastError());
+            exit();
+        }
+    }
+
+
+//    private static function _updateRegister()
+//    {
+//        $scheme = isset($_SERVER['HTTPS']) ? "https://" : "http://";
+//        $u2f = new u2flib_server\U2F($scheme . $_SERVER['HTTP_HOST']);
+//        $res = self::_getBDD("SELECT * FROM " . DATABASE_PREFIX . "registrations
+//        WHERE user_id = ?",
+//            array($_SESSION[SESSION_ARRAY_USER_INFO]['user_id'])
+//        );
+//
+//        if ($_POST['authenticate2']){
+//            //parametres: (valeur de 'authReq', clefs de l'utilisateur presentes en base , valeur en chaine de register2, )
+//            $reg = $u2f->doAuthenticate(json_decode($_SESSION['authReq']), $res[0]['id'], json_decode($_POST['authenticate2'])); //est stocké dans $reg le resultat de la fonction doAuthenticate presente dans U2F.php
+//            //met a jour l'element $reg
+//            self::_setBDD("UPDATE " . DATABASE_PREFIX . "registrations
+//            SET counter = ?
+//            WHERE id = ?",
+//                array($reg['counter'], $reg['id'])
+//            );
+//            echo "alert('success');"; //affiche une boite de dialogue l'attribut counter de la classe Registration (-1)
+//        } else {
+//            $_SESSION['authReq'] = null; //la valeur authReq devient nulle
+//        }
+//    }
+
+
+
     //
     //    /**
     //     * Read folders and check if -require "lib"- is here
@@ -1168,8 +1407,12 @@ class userLibrary //a changer
     //
 
 }
+if (FORCE_SSL == 0){
+    $user = new userLibrary();
+} else {
+    $user = new userLibrary();
+}
 
-$user = new userLibrary();
 ini_set('session.use_strict_mode', 1);
 //include "test";
 //error_debug("ceci est un test de debug ");
