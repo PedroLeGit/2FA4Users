@@ -70,7 +70,7 @@ endif;
             <div id="phpLibUserConnectedScreen">
                 <div id="phpLibUserConnectedForm">
                     <h1>Inserer la clef</h1>
-                    <form method="post" action="'; echo userLibrary::getRedirectPage(); echo '">
+                    <form method="post" action="'; echo userLibrary::_getRedirectPage(); echo '">
                         <fieldset>
                         <input type="hidden" name="authenticate">
                             <br/>

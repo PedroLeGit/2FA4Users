@@ -17,7 +17,7 @@
  */
 
 //namespace Library2FA;
-use u2flib_server\U2F as U2F;
+//use u2flib_server\U2F as U2F;
 include "error_debug.php";
 
 ////////////////////////////////////////////////////////////////////////////////////
@@ -122,15 +122,6 @@ const PASSWORD_REGISTER = 1;
 const PASSWORD_MAX_REGISTER = 5;
 
 /**
- * Time on min when number of attempt have reach limit
- * 0 (if admin have to reactivate itself on database desactivated users)
- * 1 (one minute)
- * 2 (two minutes)
- * ...
- */
-const PASSWORD_DELAY_BEFORE_RETRY = 1;
-
-/**
  * Number of attempt failed
  * 0(0)
  * 1(1)
@@ -139,7 +130,14 @@ const PASSWORD_DELAY_BEFORE_RETRY = 1;
  */
 const PASSWORD_ATTEMPT_ERROR = 5;
 
-
+/**
+ * Time on min when number of attempt have reach limit
+ * 0 (if admin have to reactivate itself on database desactivated users)
+ * 1 (one minute)
+ * 2 (two minutes)
+ * ...
+ */
+const PASSWORD_DELAY_BEFORE_RETRY = 1;
 
 ////////////////////////////////////////////////////////////////////////////////////
 //*******************************  LOGS CONSTANTS  *******************************//
@@ -273,10 +271,6 @@ const SESSION_ARRAY_USER_INFO = "user";
 //******************************  OTHERS CONSTANTS  ******************************//
 ////////////////////////////////////////////////////////////////////////////////////
 /**
- * Library version
- */
-const VERSION_LIB = 001;
-/**
  * Activate/Desactivate forcing browsers to connect with HTTPS protocol
  */
 const FORCE_SSL = 0;
@@ -312,7 +306,7 @@ class userLibrary //a changer
     private $userConnected = false;
     private $user2FAConnected = false;
     private static $currentUser = array();
-    const DEBUG = 0;
+    const DEBUG = 1;
 
     /**
      * Library constructor.
@@ -403,8 +397,7 @@ class userLibrary //a changer
             `connection_date` INTEGER NULL ,
             `password_error` INTEGER NULL , 
             `token` VARCHAR(60) NULL ,
-            `tokenSMS` VARCHAR(60) NULL ,
-            `tokenKEY` VARCHAR(60) NULL)
+            `tokenU2F` VARCHAR(60) NULL)
             ENGINE = InnoDB "
             );
         } elseif (DATABASE_TYPE == 2) {
@@ -429,8 +422,7 @@ class userLibrary //a changer
             "connection_date" integer NULL,
             "password_error" integer NULL, 
             "token" character varying(60) COLLATE pg_catalog."default" NULL,
-            "tokenSMS" character varying(60) COLLATE pg_catalog."default" NULL,
-            "tokenKEY" character varying(60) COLLATE pg_catalog."default" NULL,
+            "tokenU2F" character varying(60) COLLATE pg_catalog."default" NULL,
             CONSTRAINT ' . DATABASE_PREFIX . 'Registrations_pkey PRIMARY KEY ("id"))
             WITH (OIDS = FALSE)
             TABLESPACE pg_default;'
@@ -457,8 +449,7 @@ class userLibrary //a changer
             "connection_date"   INTEGER NULL,
             "password_error"    INTEGER NULL, 
             "token" TEXT NULL,
-            "tokenSMS" TEXT NULL,
-            "tokenKEY" TEXT NULL);'
+            "tokenU2F" TEXT NULL);'
             );
         }
     }
@@ -956,6 +947,7 @@ class userLibrary //a changer
         }
         if (isset($_POST['ajax'])){
             $reg = $_POST['reg'];
+            //$user_id = $_POST['username'];
             self::_addRegister($reg);
         }
     }
@@ -1027,33 +1019,31 @@ class userLibrary //a changer
     {
         $res = false;
         $data = self::_getBDD("SELECT * FROM " . DATABASE_PREFIX . "registrations
-                    WHERE user_id = ?",
+        WHERE user_id = ?",
             array($_SESSION[SESSION_ARRAY_USER_INFO]['user_id']));
         //var_dump($data);
         if (DOUBLEFA == 0) {
             $res = true;
-        } else { //procedure verif token sms && U2F
+        } else { //procedure verif token SMS && U2F
             if (isset($_SESSION)) {
-                //var_dump($_SESSION);
-                if (isset($_SESSION[SESSION_ARRAY_USER_INFO])
-                    && isset($_SESSION[SESSION_ARRAY_USER_INFO]['user_id'])
-                    && isset($_SESSION[SESSION_ARRAY_USER_INFO]['phone_number'])
-                    && isset($_SESSION[SESSION_ARRAY_USER_INFO]['random_number'])) {
-                    $token = $_SESSION[SESSION_ARRAY_USER_INFO]['user_id'] . $_SESSION[SESSION_ARRAY_USER_INFO]['phone_number'] . $_SESSION[SESSION_ARRAY_USER_INFO]['random_number'];
-                    //var_dump($token);
-                    if (password_verify($token, $data[0]['tokenSMS'])) {
-                        $res = true;
-                    }
-                } elseif (isset($_SESSION[SESSION_ARRAY_USER_INFO])
-                    && isset($_SESSION[SESSION_ARRAY_USER_INFO]['user_id'])
-                    && isset($_SESSION[SESSION_ARRAY_USER_INFO]['u2f_key_handle'])
-                    && isset($_SESSION[SESSION_ARRAY_USER_INFO]['u2f_public_key'])
-                    && isset($_SESSION[SESSION_ARRAY_USER_INFO]['u2f_certificate'])) {
-                    $token = $_SESSION[SESSION_ARRAY_USER_INFO]['user_id'] . $_SESSION[SESSION_ARRAY_USER_INFO]['u2f_key_handle'] . $_SESSION[SESSION_ARRAY_USER_INFO]['u2f_public_key'] . $_SESSION[SESSION_ARRAY_USER_INFO]['u2f_certificate'];
-                    //var_dump($token);
-                    if (password_verify($token, $data[0]['tokenU2F'])) {
-                        $res = true;
-                    }
+//                //var_dump($_SESSION);
+//                if (isset($_SESSION[SESSION_ARRAY_USER_INFO])
+//                    && isset($_SESSION[SESSION_ARRAY_USER_INFO]['user_id'])
+//                    && isset($_SESSION[SESSION_ARRAY_USER_INFO]['phone_number'])
+//                    && isset($_SESSION[SESSION_ARRAY_USER_INFO]['random_number'])) {
+//                    $token = $_SESSION[SESSION_ARRAY_USER_INFO]['user_id'] . $_SESSION[SESSION_ARRAY_USER_INFO]['phone_number'] . $_SESSION[SESSION_ARRAY_USER_INFO]['random_number'];
+//                    //var_dump($token);
+//                    if (password_verify($token, $data[0]['tokenSMS'])) {
+//                        $res = true;
+//                    }
+            } elseif (isset($_SESSION[SESSION_ARRAY_USER_INFO]['user_id'])
+                && isset($_SESSION[SESSION_ARRAY_USER_INFO]['u2f_key_handle'])
+                && isset($_SESSION[SESSION_ARRAY_USER_INFO]['u2f_public_key'])
+                && isset($_SESSION[SESSION_ARRAY_USER_INFO]['u2f_certificate'])) {
+                $token = $_SESSION[SESSION_ARRAY_USER_INFO]['user_id'] . $_SESSION[SESSION_ARRAY_USER_INFO]['u2f_key_handle'] . $_SESSION[SESSION_ARRAY_USER_INFO]['u2f_public_key'] . $_SESSION[SESSION_ARRAY_USER_INFO]['u2f_certificate'];
+                //var_dump($token);
+                if (password_verify($token, $data[0]['tokenU2F'])) {
+                    $res = true;
                 }
             }
         }
@@ -1166,41 +1156,6 @@ class userLibrary //a changer
 
 
     /**
-     *
-     */
-//    private static function _connection2FA($user_id)
-//    {
-//        $dataSMS = $user_id . phone_number...
-//
-//        $_SESSION[SESSION_ARRAY_USER_INFO]['user_id'] = $user_id;
-//        $_SESSION[SESSION_ARRAY_USER_INFO]['phone_number'] = ;
-//        $_SESSION[SESSION_ARRAY_USER_INFO]['random_number'] = ;
-//
-//        $_SESSION[SESSION_ARRAY_USER_INFO]['tokenKEY'] = password_hash($dataSMS, PASSWORD_BCRYPT);
-//
-//        $dataKEY = $user_id . u2f_key_handle . ...;
-//
-//        $_SESSION[SESSION_ARRAY_USER_INFO]['user_id'] = $user_id;
-//        $_SESSION[SESSION_ARRAY_USER_INFO]['u2f_key_handle'] = ;
-//        $_SESSION[SESSION_ARRAY_USER_INFO]['u2f_public_key'] = ;
-//        $_SESSION[SESSION_ARRAY_USER_INFO]['u2f_certificate'] = ;
-//
-//        $_SESSION[SESSION_ARRAY_USER_INFO]['tokenKEY'] = password_hash($dataKEY, PASSWORD_BCRYPT);
-//
-//
-//        self::_setBDD("UPDATE " . DATABASE_PREFIX . "registrations
-//                   SET tokenKEY = ?,
-//                    tokenSMS = ?
-//                    WHERE user_id = ?",
-//            array($user_id)
-//        );
-////            self::_sessionRegenerateId();
-//
-//        error_debug("ERRORINFO", $_SESSION[SESSION_ARRAY_USER_INFO]['errorCode'] . $_SESSION[SESSION_ARRAY_USER_INFO]['errorText']);
-//    }
-
-
-    /**
      * This function is only if you want to
      * disable user and reset delay_password "manually"
      *
@@ -1224,7 +1179,7 @@ class userLibrary //a changer
         echo '<script>';
         echo 'var req = '.$_SESSION[SESSION_ARRAY_USER_INFO]['regReq'].';'; //prepare une variable JS de $req en cdc
         echo 'var sigs = '.$_SESSION[SESSION_ARRAY_USER_INFO]['sigs'].';'; //prepare une variable JS de $sigs en cdc
-        echo 'var username = '.json_encode($_SESSION[SESSION_ARRAY_USER_INFO]['user_id']).';';
+        echo 'var username = \''.$_SESSION[SESSION_ARRAY_USER_INFO]['user_id'].'\';';
         echo 'setTimeout(function (){u2fRegisterKey();}, 1000); ';
         echo '</script>';
     }
@@ -1235,7 +1190,7 @@ class userLibrary //a changer
      */
     public static function _initKey(){
         $scheme = isset($_SERVER['HTTPS']) ? "https://" : "http://";
-        $u2f = new U2F($scheme . $_SERVER['HTTP_HOST']);
+        $u2f = new u2flib_server\U2F($scheme . $_SERVER['HTTP_HOST']);
         try {
             //Cree challenge et recupere authentification (s'il y a) en fonction
             //des clefs presentes en base
@@ -1250,7 +1205,7 @@ class userLibrary //a changer
             $_SESSION[SESSION_ARRAY_USER_INFO]['regReq'] = json_encode($req);
             $_SESSION[SESSION_ARRAY_USER_INFO]['req'] = json_encode($req);
             $_SESSION[SESSION_ARRAY_USER_INFO]['sigs'] = json_encode($sigs);
-            $_SESSION[SESSION_ARRAY_USER_INFO]['id'] = json_encode(self::$currentUser['id']);
+            $_SESSION[SESSION_ARRAY_USER_INFO]['id'] = self::$currentUser['id'];
             //echo "var username = '" . $user_id . "';";
         } catch (Exception $e) {
             //ne sera pas affiche en cas d'erreur a cause du header _loginForm
@@ -1268,19 +1223,36 @@ class userLibrary //a changer
         echo "ADDREGISTER";
         echo "\n";
         $scheme = isset($_SERVER['HTTPS']) ? "https://" : "http://";
-        $u2f = new U2F($scheme . $_SERVER['HTTP_HOST']);
+        $u2f = new u2flib_server\U2F($scheme . $_SERVER['HTTP_HOST']);
             if (isset($_SESSION[SESSION_ARRAY_USER_INFO]['regReq'])){
                 echo "reqReg present";
-                var_dump($_SESSION[SESSION_ARRAY_USER_INFO]['regReq']);
+                //var_dump($_SESSION[SESSION_ARRAY_USER_INFO]['regReq']);
                 echo "\n";
-                var_dump($reg);
+                //var_dump($reg);
+//                exit();
                 //parametres: (valeur de 'regReq', valeurs en chaine de register2)
-                //$reg = $u2f->doRegister(json_decode($_SESSION[SESSION_ARRAY_USER_INFO]['regReq']), json_decode($reg)); //est stocké dans $reg le resultat de la fonction doRegister presente dans U2F_olf.php
-                //ajoute un enregistrement
-//                self::_setBDD("UPDATE " . DATABASE_PREFIX . "registrations (keyHandle, publicKey, certificate, counter)
-//                    VALUES (?, ?, ?, ?), WHERE user_id = ?",
-//                    array($_SESSION[SESSION_ARRAY_USER_INFO]['user_id'], $reg->keyHandle, $reg->publicKey, $reg->certificate, $reg->counter)
-//                );
+                $reg1 = $u2f->doRegister(json_decode($_SESSION[SESSION_ARRAY_USER_INFO]['regReq']), json_decode($reg)); //est stocké dans $reg le resultat de la fonction doRegister presente dans U2F_olf.php
+                $dataU2F = $_SESSION[SESSION_ARRAY_USER_INFO]['user_id'] . $reg1->keyHandle . $reg1->publicKey . $reg1->certificate;
+                //var_dump($dataU2F);
+
+                $_SESSION[SESSION_ARRAY_USER_INFO]['u2f_key_handle'] = $reg1->keyHandle;
+                $_SESSION[SESSION_ARRAY_USER_INFO]['u2f_public_key'] = $reg1->publicKey;
+                $_SESSION[SESSION_ARRAY_USER_INFO]['u2f_certificate'] = $reg1->certificate;
+//                var_dump($_SESSION[SESSION_ARRAY_USER_INFO]);
+                $dataU2FHash = password_hash($dataU2F, PASSWORD_BCRYPT);
+                $_SESSION[SESSION_ARRAY_USER_INFO]['tokenU2F'] = $dataU2FHash;
+//                var_dump($_SESSION[SESSION_ARRAY_USER_INFO]['tokenU2F']);
+//                echo "\n";
+//                //ajoute un enregistrement
+                self::_setBDD("UPDATE " . DATABASE_PREFIX . "registrations
+                    SET u2f_key_handle = ?,
+                    u2f_public_key = ?,
+                    u2f_certificate = ?,
+                    u2f_counter = ?,
+                    tokenU2F = ?
+                    WHERE user_id = ?",
+                    array($reg1->keyHandle, $reg1->publicKey, $reg1->certificate, $reg1->counter, $dataU2FHash, $_SESSION[SESSION_ARRAY_USER_INFO]['user_id'])
+                );
                 echo "alert('success');";
             } else {
                 $_SESSION['regReq'] = null; //la valeur regReq devient nulle
@@ -1309,6 +1281,10 @@ class userLibrary //a changer
             && !$user2FAConnected){
             self::_initKey();
             header("Location: " . LOGIN_PAGE);
+        } elseif ($_SERVER['PHP_SELF'] != LOGIN_PAGE
+            && $userConnected
+            && $user2FAConnected){
+            echo "connecté !";
         }
     }
 
