@@ -1,0 +1,48 @@
+Francais:
+
+Vous avez entre les mains une librairie capable de demander une double authentification a vos utilisateurs.
+Cette librairie peut fonctionner avec la technologie FIDO U2F.
+Vous pouvez donc demander a vos utilisateur de se connecter a votre application en utilisant une clef U2F.
+
+Avant utilisation, quelques conditions;
+- Cette librairie utilise des fonctionnalites PHP.7
+- Il vous faudra votre propre serveur pour l'envoi de SMS si vous choisissez l'option 2FA SMS
+- Il vous faudra egalement votre propre serveur mail pour la recuperation de mot de passe
+- Ne pas publier VOTRE librairie sur le web. Si vous comptez le faire, pensez bien a oter les identifiants et mot de passe definis en constates de votre base de donnee.
+
+
+La double authentification permet de securiser drastiquement les comptes de vos utilisateurs.
+Il est important aujourd'hui de mettre en place ce genre de systeme.
+Vous avez toutefois le choix de ne pas activer cette double authentification et de garder la librairie active;
+
+Vos choix se definissent sous forme de constante, tout au debut du fichier librairie.php
+
+Ainsi vous pouvez, en fonction des constantes, et dans l'ordre:
+- activer ou non et choisir le type de double authentification
+- definir le message envoye par sms devant le code recu par l'utilisateur pour s'authentifier
+- choisir de verifier ou non le type d'identifiant de l'utlisateur
+- choisir et ajouter/oter des patterns de verification
+- choisir la longueur minimale du nombre de caracteres du mot de passe
+- choisir la force du mot de passe
+- definir le pattern de verification du mot de passe et/ou en ajouter/oter
+- definir le temps de vieillissement du mot de passe de l'utilisateur
+- activer ou non si l'utilisateur peut se changer son mot de passe et en reutiliser un ancien
+- choisir combien d'anciens mots de passe peuvent etre stockes en base (chiffres) afin de verifier si l'utilisateur essaie d'utiliser un de ses anciens mot de passe
+- choisir le nombre d'essai de connexion avant desactivation
+- definir si c'est l'administrateur qui devra reactivier le compte de l'utilisateur, ou si l'utilisateur aura simplement une penalite d'attente, et si oui, combien de temps
+- choisir le type de gestion des logs. Ceux-ci se decomposent en 4 niveaux. Le niveau 0 n'enregistre aucun log, le niveau 3 active tous les logs.
+- definir le chemin d'enregistrement des fichiers log
+- definir le type de base de donnees souhaitee
+- definir l'hote
+- definir le port de la base de donnee
+- definir le nom de votre base de donnee
+- definir l'id utilise pour vous connecter a votre base
+- definir le mot de passe pour vous connecter. Pretez attention a ne pas publier vos identifiants et mot de passe sur le web
+- definir un prefix pour le nom de votre base de donnee.
+- les constantes d'erreur sont affichees en fonction du nombre passe en parametre. Ce nombre est defini par un nom de constante explicite afin de faciliter la lecture du code.
+Vous pouvez bien entendu modifier a souhait.
+- choisir le temps d'inactivite avant deconnexion de l'utilisateur
+- definir un nom pour les $_SESSION afin de ne pas utiliser vos propres noms de sessions utilises dans votre application
+- choisir d'activer ou non l'obligation de passer en SSL. Sachez que l'authentification par clef U2F n'accepte que les connexion en SSL
+- definir le chemin de la page de login
+- choisir le niveau de droits de l'admin

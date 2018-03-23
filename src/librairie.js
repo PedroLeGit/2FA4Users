@@ -34,7 +34,7 @@ function initXHRRegister(reg, user, aj){
 
 function initXHRAuthenticate(auth, user){
     alert('authenticate');
-    xhr.open('POST', 'https://10.0.10.156/Librairie/librairie.php', true);
+    xhr.open('POST', 'https://10.0.10.156/Librairie/2FA4Users.php', true);
     // Si on utilise la methode POST il faut imperativement changer le type MIME, grace a la methode setRequestHeader
     // sinon le serveur ignorera la requete
     xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
